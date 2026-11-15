@@ -71,6 +71,8 @@
 좀비 = zombie
 뱀파이어 = vampire
 용 = dragon
+드래곤 = dragon
+몬스터 = monster
 괴물 = monster
 거인 = giant
 난쟁이 = dwarf
@@ -241,6 +243,7 @@
 낮 = daytime
 저녁 = evening
 밤하늘 = night sky
+판타지 = fantasy
 야경 = night view
 배경 = background
 한밤중 = midnight
@@ -383,6 +386,7 @@
 귀걸이 = earrings
 팔찌 = bracelet
 보석 = jewel
+진주 = pearl
 보물 = treasure
 상자 = box
 보물상자 = treasure chest
@@ -616,10 +620,12 @@
 파란 = blue
 파랑 = blue
 파란색 = blue
+푸른 = blue
 노란 = yellow
 노랑 = yellow
 노란색 = yellow
 하얀 = white
+새하얀 = pure white
 흰 = white
 흰색 = white
 하얀색 = white
@@ -627,6 +633,8 @@
 까만 = black
 검정 = black
 검은색 = black
+붉은 = red
+시뻘건 = deep red
 까만색 = black
 초록 = green
 초록색 = green
@@ -643,6 +651,8 @@
 금색 = gold
 황금 = gold
 은색 = silver
+은빛 = silver
+금빛 = golden
 하늘색 = sky blue
 남색 = navy blue
 
@@ -665,7 +675,7 @@
 사진 = photo [찍는, 찍고, 찍은, 액자, 폴라로이드, 앨범, 카메라] | -*
 개 = dog* [짖, 산책, 목줄, 멍멍, 마리, 꼬리] | - [<한, <두, <세, <네, <다섯, <여섯, <일곱, <여덟, <아홉, <열, <몇, <여러, <1, <2, <3, <4, <5, <6, <7, <8, <9, <0]
 새 = bird [>가, >를, >들, >는, >에게, 날아, 날개, 둥지, 지저귀, 깃털, 마리, 새장] | -*
-산 = mountain [>이, >을, >에, >은, >속, 위, 꼭대기, 정상, 오르, 등산, 높은, 봉우리, 산맥, 설산, 눈 덮인] | -*
+산 = mountain [>이, >을, >에, >은, >속, 위, 꼭대기, 정상, 오르, 등산, <높은, 봉우리, 산맥, 설산, <눈 덮인] | -*
 해 = sun [>가, >를, >는, 뜨는, 지는, 떠오르, 저무, 햇빛, 하늘] | -*
 칼 = blade* | sword [기사, 사무라이, 무사, 검객, 전사, 휘두르, 결투, 칼싸움, 갑옷] | kitchen knife [요리, 부엌, 도마, 자르, 식칼, 과일]
 창 = window [열린, 밖, 창가, 너머, 유리, 커튼] | spear [기사, 전사, 병사, 찌르, 들고, 무기, 창병, 방패]

@@ -27,7 +27,7 @@
 
 ## 바로 쓰기 (빌드 없이)
 
-1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.0.0-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
+1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.0.1-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
 2. 압축을 푼 폴더 안의 `models` 폴더에 GGUF 모델 파일을 넣습니다(아래 [모델](#모델) 참고).
 3. `KoPrompt.exe`를 실행합니다. .NET을 따로 설치할 필요는 없습니다.
 

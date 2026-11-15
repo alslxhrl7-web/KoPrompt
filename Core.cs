@@ -255,9 +255,13 @@ public static class BasicLexicon
     /// <summary>
     /// 한 글자 낱말에서 떼어도 되는 조사. "강도"(robber)·"별로"·"문의"(inquiry)·"강의"(lecture)처럼
     /// 한 글자 낱말 + 도/로/의/만 이 다른 낱말이 되는 경우가 많아서 이것들은 뺐다.
+    /// 은/는도 뺐다: "낮은"(low)·"쥐는"(holding)·"비는"(praying)처럼 꾸밈말 어미와 모양이 같다.
     /// </summary>
     private static readonly HashSet<string> OneSyllableParticles =
-        ["은", "는", "이", "가", "을", "를", "에", "에서", "와", "과", "처럼", "이랑", "랑"];
+        ["이", "가", "을", "를", "에", "에서", "와", "과", "처럼", "이랑", "랑"];
+
+    /// <summary>뜻을 고를 때 단서로 보는 최대 거리(글자 수). 멀리 떨어진 말이 엉뚱한 뜻을 고르지 않게 한다.</summary>
+    private const int MaxCueDistance = 8;
 
     private static void Load()
     {
@@ -299,6 +303,9 @@ public static class BasicLexicon
     }
 
     private static bool Known(string key) => Map.ContainsKey(key) || Senses.ContainsKey(key);
+
+    /// <summary>조사 없이 그대로 기본 낱말 사전에 있는 낱말인지.</summary>
+    public static bool IsWord(string word) => Known(word);
 
     /// <summary>낱말 하나(조사가 붙어 있어도 됨)가 사전의 어느 말인지. 돌려주는 값은 조사·"들"을 뗀 낱말.</summary>
     private static string? MatchKey(string word)
@@ -364,8 +371,11 @@ public static class BasicLexicon
         for (int i = text.IndexOf(word, StringComparison.Ordinal); i >= 0; i = text.IndexOf(word, i + 1, StringComparison.Ordinal))
         {
             if (i >= start && i < end) continue;   // 낱말 자신
-            int distance = i >= end ? i - end : Math.Max(0, start - (i + word.Length));
+            int distance = i >= end ? i - end
+                : i + word.Length > start ? word.Length - (end - start)   // 단서가 낱말을 품은 경우("큰 눈"): 붙은 앞말 길이만큼
+                : start - (i + word.Length);
             if (beforeOnly && (i >= end || distance > 3)) continue;
+            if (distance > MaxCueDistance) continue;
             best = Math.Min(best, distance);
         }
         return best;
@@ -375,9 +385,11 @@ public static class BasicLexicon
     /// 목록의 한 항목처럼 따로 떨어진 낱말의 뜻. context는 그 낱말이 들어 있는 전체 입력(뜻이 여럿일 때 단서를 찾는 곳).
     /// 사전에 없거나, 뜻을 붙이지 않는 경우거나, 문맥으로도 뜻을 정하지 못했으면 null.
     /// </summary>
-    public static string? Meaning(string word, string context)
+    /// <param name="allowParticles">false면 조사가 붙은 낱말("고양이랑")은 null. 목록 항목에서 관계를 잃지 않게 한다.</param>
+    public static string? Meaning(string word, string context, bool allowParticles = true)
     {
         if (MatchKey(word) is not { } key) return null;
+        if (!allowParticles && key != word && key + "들" != word) return null;
         int index = Math.Max(0, context.IndexOf(word, StringComparison.Ordinal));
         string english = Resolve(key, context.Contains(word, StringComparison.Ordinal) ? context : word, index);
         return english.Length == 0 || english.Contains(" / ", StringComparison.Ordinal) ? null : english;

@@ -602,10 +602,16 @@ public static class LocalEngine
         if (CommaListItems(normalized) is { } items)
             return TranslateList(req, dict, items, glossary, status, partial, ct);
 
-        // 낱말 하나짜리 입력("고양이")은 한 항목짜리 목록으로 옮긴다. 그냥 옮기게 하면 모델이 가끔
-        // "cat curled up asleep"처럼 동작을 지어낸다. 사전에 있으면 AI 없이 바로 그 뜻을 쓴다.
-        if (normalized.Length > 0 && normalized.IndexOfAny([' ', ',', '\n']) < 0)
+        // 사전에 있는 낱말 하나짜리 입력("고양이")은 AI 없이 바로 그 뜻을 쓴다. 그냥 옮기게 하면 모델이 가끔
+        // "cat curled up asleep"처럼 동작을 지어낸다. 띄어쓰기 없이 쓴 문장("고양이가소파에앉아있음")이나
+        // 사전에 없는 은어는 여기에 걸리지 않고 아래에서 평소대로 옮긴다(풀이도 쓴다).
+        // 사전에 없어도 짧고 조사·어미가 없는 한 낱말("드래곤", "갓벽")은 한 항목으로 짧게만 옮기게 한다(풀이는 쓴다).
+        if (normalized.Length > 0 && normalized.IndexOfAny([' ', ',', '\n']) < 0 &&
+            (DictionaryMeaning(normalized, dict, req.Korean) is not null ||
+             (normalized.Length <= 6 && !Array.Exists(GrammarEndings, e => normalized.EndsWith(e, StringComparison.Ordinal)))))
+        {
             return TranslateList(req, dict, [normalized], glossary, status, partial, ct);
+        }
 
         Generation g = Infer(req, userMessage, glossary, OneLinePrompt, status, partial, ct);
 
@@ -631,6 +637,8 @@ public static class LocalEngine
     {
         string?[] english = [.. items.Select(item => DictionaryMeaning(item, dict, req.Korean))];
         Generation total = new("", 0, 0, 0, 0);
+        string notes = "\nNOTES:\n- 없음";
+        bool single = items.Length == 1;   // 한 낱말 입력이면 풀이도 그 답의 것을 쓴다(사전에 없는 은어 하나만 넣은 경우)
 
         for (int i = 0; i < items.Length; i++)
         {
@@ -639,8 +647,10 @@ public static class LocalEngine
 
             string head = BuildHead(items[i], dict, out List<Note> itemGlossary);
             int cap = items[i].Split(' ', StringSplitOptions.RemoveEmptyEntries).Length + 3;
-            Generation one = Infer(req with { Explain = false }, head, itemGlossary, ItemGrammar(cap), status, null, ct);
+            Generation one = Infer(req with { Explain = single && req.Explain }, head, itemGlossary, ItemGrammar(cap), status, null, ct);
             total = After(total, one);
+            int notesAt = one.Raw.IndexOf("\nNOTES:", StringComparison.Ordinal);
+            if (single && notesAt >= 0) notes = one.Raw[notesAt..];
 
             string phrase = TrimListItem(Parse(one.Raw).Item1.Trim().TrimEnd('.'), items[i]);
             if (i > 0 && !Regex.IsMatch(phrase, @"^(?:Korean|Japanese|Chinese|English|Christmas|Halloween)\b"))
@@ -653,7 +663,7 @@ public static class LocalEngine
 
         Trace($"list translated item by item: {items.Length} items, {total.Tokens} tokens");
         string line = string.Join(", ", english.Where(e => !string.IsNullOrEmpty(e)));
-        return total with { Raw = AnswerStart + " " + line + "\nNOTES:\n- 없음" };
+        return total with { Raw = AnswerStart + " " + line + notes };
     }
 
     /// <summary>
@@ -663,24 +673,32 @@ public static class LocalEngine
     /// </summary>
     private static string TrimListItem(string phrase, string korean)
     {
+        // 이어 붙인 쓰레기 낱말: 하이픈 없이 14글자를 넘거나, 소문자 셋 이상 뒤에 대문자가 오는 것("aircraftedDetails").
+        // "off-the-shoulder"(하이픈), "iPhone"·"McDonald"(앞 소문자 1~2개)는 정상 낱말로 본다.
         string[] words = phrase.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        int glued = Array.FindIndex(words, w => w.Length > 14 || Regex.IsMatch(w, "[a-z][A-Z]"));
+        int glued = Array.FindIndex(words, w => (w.Length > 14 && !w.Contains('-')) || Regex.IsMatch(w, "[a-z]{3,}[A-Z]"));
         string text = string.Join(' ', glued >= 0 ? words[..glued] : words);
+        if (IsOnlyFiller(text)) text = phrase;
 
         if (!korean.Trim().Contains(' '))
         {
             // 위치·동작 군말. 동작 낱말은 뒤에 다른 낱말이 붙어 나와도("standingalone") 잡히게 앞부분만 본다.
-            text = Regex.Replace(
+            string cut = Regex.Replace(
                 text,
                 @"\s+(?:(?:with|from|in|on|at|by|under|over|amid|amidst|among|atop|near|beside)\b|with(?=[a-z]{3,})|" +
                 @"(?:nestled|standing|burning|falling|perched|surrounded|featuring|showing|clad|wearing|dressed|glowing|" +
                 @"shining|flickering|crackling|floating|flying|lying|sitting|bustling)).*$",
                 "",
                 RegexOptions.IgnoreCase);
+            if (!IsOnlyFiller(cut)) text = cut;   // "A flying saucer"를 "A"로 만들지 않는다
         }
         text = Regex.Replace(text, @"\s+(?:a|an|the|and|of|with|in|on)$", "", RegexOptions.IgnoreCase);
-        return text.Length > 0 ? text : phrase;
+        return IsOnlyFiller(text) ? phrase : text;
     }
+
+    /// <summary>관사·이음말만 남았거나 비었는지.</summary>
+    private static bool IsOnlyFiller(string text) =>
+        Regex.IsMatch(text, @"^\s*(?:(?:a|an|the|and|of|with|in|on)\s*)*$", RegexOptions.IgnoreCase);
 
     /// <summary>항목이 은어 사전("!" 표시는 뗀 것)이나 기본 낱말 사전에 통째로 있으면 그 뜻.</summary>
     /// <param name="context">항목이 들어 있는 전체 입력. 뜻이 여럿인 낱말("눈")은 여기서 단서("겨울")를 찾는다.</param>
@@ -689,8 +707,10 @@ public static class LocalEngine
         string trimmed = item.Trim();
         dict.Annotate(trimmed, out List<Note> found);
         if (found.Count == 1 && found[0].Term == trimmed) return found[0].English;
+        // 기본 낱말은 조사가 붙지 않은 낱말 그대로일 때만 쓴다. "고양이랑", "엄마와"처럼 조사가 붙어 있으면
+        // 관계(and, with)를 잃지 않게 AI가 옮긴다.
         if (!trimmed.Contains(' '))
-            return found.Count > 0 ? null : BasicLexicon.Meaning(trimmed, context);   // 은어가 일부 들어 있으면 AI가 옮긴다
+            return found.Count > 0 ? null : BasicLexicon.Meaning(trimmed, context, allowParticles: false);   // 은어가 일부 들어 있으면 AI가 옮긴다
 
         // 여러 낱말 항목도 낱말마다 사전의 뜻이 있으면 그대로 잇는다("벚꽃 배경" → "cherry blossoms background",
         // "검은 머리" → "black hair"). 한국어의 꾸밈말-이름 순서는 영어와 같다.
@@ -699,7 +719,7 @@ public static class LocalEngine
         {
             dict.Annotate(word, out List<Note> slang);
             string? meaning = slang.Count == 1 && slang[0].Term == word ? slang[0].English
-                : slang.Count == 0 ? BasicLexicon.Meaning(word, context)
+                : slang.Count == 0 ? BasicLexicon.Meaning(word, context, allowParticles: false)
                 : null;
             if (meaning is null) return null;
             parts.Add(meaning);
@@ -728,7 +748,7 @@ public static class LocalEngine
     }
 
     private static readonly string[] GrammarEndings =
-        ["는", "은", "을", "를", "에", "의", "로", "서", "고", "며", "게", "줘", "요", "다", "함", "듯", "채"];
+        ["는", "은", "을", "를", "에", "의", "로", "서", "고", "며", "게", "줘", "요", "다", "함", "듯", "채", "와", "과", "랑", "하고"];
 
     private static readonly HashSet<string> PlaceWords = ["위", "아래", "옆", "앞", "뒤", "안", "밖", "속", "사이", "중", "때"];
 
@@ -749,6 +769,7 @@ public static class LocalEngine
 
         foreach (string word in words)
         {
+            if (BasicLexicon.IsWord(word)) continue;   // "사과"처럼 낱말 자체가 어미 모양으로 끝나는 것
             char last = word[^1];
             bool endsWithN = last is >= '가' and <= '힣' && (last - '가') % 28 == 4;   // 받침 ㄴ: 빨간, 입은, 놓인
             if (endsWithN || PlaceWords.Contains(word) || Array.Exists(GrammarEndings, e => word.EndsWith(e, StringComparison.Ordinal)))
@@ -842,7 +863,12 @@ public static class LocalEngine
             if (promptDone)
             {
                 // 풀이할 것이 없다는 답이 나오면 더 기다리지 않는다.
-                if (soFar.EndsWith("없음", StringComparison.Ordinal)) break;
+                // "- 어이없음 => …"처럼 은어가 "없음"으로 끝나는 경우와 헷갈리지 않게 줄 전체를 본다.
+                if (soFar.EndsWith("없음", StringComparison.Ordinal) &&
+                    LastLine(soFar + "\n").TrimStart('-', ' ') == "없음")
+                {
+                    break;
+                }
 
                 if (tokens - promptTokens >= MaxNoteTokens)
                 {
@@ -987,6 +1013,19 @@ public static class LocalEngine
             text = Regex.Replace(text, @"[,\s]+(?:amidst|amid|surrounded by)\b[^,;]*$", "", RegexOptions.IgnoreCase);
         text = Regex.Replace(text, @"\b(\w+) standing tall\b", "$1", RegexOptions.IgnoreCase);
 
+        // "… with heavy snow covering everything", "a village enveloped in snow" → "covering everything" 떼기, "enveloped in" → "in"
+        text = Regex.Replace(
+            text,
+            @"\s+(?:covering|blanketing|engulfing|filling) (?:everything|it all|the (?:entire |whole )?(?:scene|area|ground|landscape|village|town|city))\b",
+            "",
+            RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"\b(?:enveloped|engulfed|blanketed|shrouded|bathed) in\b", "in", RegexOptions.IgnoreCase);
+
+        // 모델이 확신 없이 덧붙이는 "perhaps …", 습관처럼 붙이는 "gazing off into the distance"
+        text = Regex.Replace(text, @"[,\s]+(?:perhaps|maybe|possibly)\b.*$", "", RegexOptions.IgnoreCase);
+        if (!Regex.IsMatch(korean, "먼 곳|먼곳|멀리|먼산|먼 산|허공|바라보"))
+            text = Regex.Replace(text, @"[,\s]+(?:gazing|staring|looking)(?: off)? (?:into|at) the (?:distance|horizon)\b", "", RegexOptions.IgnoreCase);
+
         // 뜻이 여럿인 낱말의 "window / spear" 표시를 모델이 그대로 베꼈으면 앞의 뜻 하나만 남긴다.
         foreach (Note g in glossary.Where(g => g.English.Contains(" / ", StringComparison.Ordinal)))
             text = text.Replace(g.English, g.English.Split(" / ")[0], StringComparison.OrdinalIgnoreCase);
@@ -1113,6 +1152,9 @@ public static class LocalEngine
             string term = CleanTerm(n.Term);
             if (term.Length == 0 || n.English.Length > 80 || n.English.Contains("(=", StringComparison.Ordinal)) continue;
 
+            // 풀이는 짧은 영어 구여야 한다. "focusing on exactly five fingers to exclude any ambiguity." 같은 설명문은 버린다.
+            if (n.English.TrimEnd().EndsWith('.') || n.English.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 7) continue;
+
             // 입력에 없는 말을 풀이했다면 모델이 지어낸 것이다(작은 모델에서 가끔 생긴다).
             if (!req.Korean.Contains(term, StringComparison.Ordinal)) continue;
 
@@ -1227,6 +1269,7 @@ public static class LocalEngine
             @"\s+(?:in|on|at|along|during|within|inside)\s+(?=(?:an?|the)\s)",
             ", ");
         text = Regex.Replace(text, @"\s+during\s+", ", ");
+        text = Regex.Replace(text, @"\s+against\s+(?:(?:an?|the)\s+)?", ", ");   // "bob haircut against a night view background"
 
         bool userExcluded = Regex.IsMatch(korean, "빼고|말고|대신|제외");
         HashSet<string> seenWords = [];
@@ -1345,7 +1388,13 @@ public static class LocalEngine
     private static string BuildHead(string korean, SlangDictionary dict, out List<Note> glossary)
     {
         string annotated = dict.Annotate(NormalizeRequest(korean), out glossary);
-        return ClarifyLayering(BasicLexicon.Annotate(annotated, glossary));   // 흔한 낱말에도 뜻을 붙인다(해석 칸에는 안 보임)
+
+        // 여러 낱말짜리 은어("눈 돌아간")의 안쪽 낱말에는 기본 뜻을 붙이지 않는다. 그 은어의 띄어쓰기를
+        // 잠시 보이지 않는 글자(U+2060)로 바꿔 한 낱말로 묶어 두었다가 되돌린다.
+        foreach (Note g in glossary.Where(g => g.Term.Contains(' ')))
+            annotated = annotated.Replace(g.Term + "(=", g.Term.Replace(' ', '⁠') + "(=", StringComparison.Ordinal);
+        annotated = BasicLexicon.Annotate(annotated, glossary).Replace('⁠', ' ');   // 흔한 낱말에도 뜻을 붙인다(해석 칸에는 안 보임)
+        return ClarifyLayering(annotated);
     }
 
     /// <summary>
@@ -1358,7 +1407,8 @@ public static class LocalEngine
         string text = korean.Trim().Replace("\r\n", "\n");
 
         // "손가락5개" → "손가락 5개" (붙여 쓰면 사전에서 낱말을 찾지 못한다)
-        text = Regex.Replace(text, @"([가-힣])(\d)", "$1 $2");
+        // 수 세는 말 앞에서만 띄운다. "중2병", "재벌2세" 같은 은어는 건드리지 않는다.
+        text = Regex.Replace(text, @"([가-힣])(\d+\s*(?:개|명|마리|송이|그루|채|대|장|권|잔|켤레|벌|쌍|살))", "$1 $2");   // "병"은 "중2병" 때문에 뺐다
 
         // "고양이 그림 그려줘" → "고양이": 요청 동사 바로 앞의 그림·이미지는 요청의 일부다("사진"은 사진풍이라는 뜻이라 남긴다)
         text = Regex.Replace(text, @"\s*(?:그림|이미지|일러스트)(?:으로|로|을|를)?(?=\s*(?:그려|만들어|뽑아|생성해))", "");
@@ -1372,7 +1422,9 @@ public static class LocalEngine
         // "배경은 야경으로 하고" → "야경 배경,", "머리는 단발로 해줘" → "단발 머리,", "옷은 교복으로" → "교복,"
         text = Regex.Replace(
             text,
-            @"(?<k>[가-힣]+)[은는] (?<v>[가-힣A-Za-z0-9]+?)(?:으로|로) (?:해 ?주고|해 ?줘|해 ?주세요|해서|하고|해라|해|바꿔 ?줘|바꾸고)(?=\s|,|$)",
+            // k는 낱말 첫머리에서 시작하는 두 글자 이상(또는 "옷")이라야 한다: "검은 단발로"의 "검"을 k로 읽지 않게.
+            // v는 여러 낱말이어도 된다: "머리는 검은 단발로" → "검은 단발 머리".
+            @"(?<=^|[\s,])(?<k>옷|[가-힣]{2,})[은는] (?<v>[^,\n]+?)(?:으로|로) (?:해 ?주고|해 ?줘|해 ?주세요|해서|하고|해라|해|바꿔 ?줘|바꾸고)(?=\s|,|$)",
             m => m.Groups["k"].Value is "옷" or "의상" or "복장" or "차림" or "옷차림"
                 ? m.Groups["v"].Value + ","
                 : m.Groups["v"].Value + " " + m.Groups["k"].Value + ",");
