@@ -182,6 +182,24 @@ public sealed class SlangDictionary
     /// 찾은 단어는 matches에 기록한다. 같은 단어가 또 나오면 처음 한 번만 뜻을 붙인다.
     /// 문장을 이어서 치면 결과도 뒤에만 덧붙으므로, 치는 동안 앞부분을 AI에게 미리 읽혀 둘 수 있다.
     /// </summary>
+    /// <summary>은어 앞에 붙어도 되는 강조 접두어. "개존잘"의 "존잘", "핵귀여운"의 "귀여운"처럼 이 뒤에서는 은어를 맞춘다.</summary>
+    private static readonly HashSet<string> IntensifierPrefixes =
+        ["개", "핵", "존", "졸", "킹", "갓", "왕", "씹", "쌉", "초", "극", "개존", "존나", "졸라", "개핵", "핵존", "개씹", "겁나", "존내", "넘"];
+
+    /// <summary>
+    /// i가 한글 낱말의 한가운데인지. "뚱뚱한" 속의 "뚱한"(sulky)처럼 다른 낱말 속 글자에 은어 뜻이 붙지 않게,
+    /// 낱말 중간에서는 앞부분이 강조 접두어일 때만 은어를 맞춘다.
+    /// </summary>
+    private static bool InsideWord(string text, int i)
+    {
+        if (i == 0 || !IsHangul(text[i - 1])) return false;
+        int start = i - 1;
+        while (start > 0 && IsHangul(text[start - 1])) start--;
+        return !IntensifierPrefixes.Contains(text[start..i]);
+    }
+
+    private static bool IsHangul(char c) => c is >= '가' and <= '힣' or >= 'ㄱ' and <= 'ㅣ';
+
     public string Annotate(string text, out List<Note> matches)
     {
         matches = [];
@@ -192,12 +210,15 @@ public sealed class SlangDictionary
         while (i < text.Length)
         {
             KeyValuePair<string, string>? hit = null;
-            foreach (var entry in _entries)
+            if (!InsideWord(text, i))
             {
-                if (string.CompareOrdinal(text, i, entry.Key, 0, entry.Key.Length) == 0)
+                foreach (var entry in _entries)
                 {
-                    hit = entry;
-                    break;
+                    if (string.CompareOrdinal(text, i, entry.Key, 0, entry.Key.Length) == 0)
+                    {
+                        hit = entry;
+                        break;
+                    }
                 }
             }
 
@@ -379,10 +400,14 @@ public static class BasicLexicon
 
         bool beforeOnly = cue.StartsWith('<');
         string word = beforeOnly ? cue[1..] : cue;
+        string key = text[start..end];
         int best = int.MaxValue;
         for (int i = text.IndexOf(word, StringComparison.Ordinal); i >= 0; i = text.IndexOf(word, i + 1, StringComparison.Ordinal))
         {
             if (i >= start && i < end) continue;   // 낱말 자신
+            // 그 낱말을 품은 단서("밤"의 "군밤")가 다른 자리에 있으면 단서로 보지 않는다: "밤에 군밤 파는 노점"의 밤은 night.
+            bool overlaps = i < end && i + word.Length > start;
+            if (!overlaps && word.Contains(key, StringComparison.Ordinal)) continue;
             int distance = i >= end ? i - end
                 : i + word.Length > start ? word.Length - (end - start)   // 단서가 낱말을 품은 경우("큰 눈"): 붙은 앞말 길이만큼
                 : start - (i + word.Length);

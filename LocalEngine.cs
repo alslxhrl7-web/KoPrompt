@@ -963,8 +963,8 @@ public static class LocalEngine
             "웃|미소|쪼개|싱글|방긋|히죽|깔깔|빙그레|헤벌쭉|함박|스마일"),
         (@"(?:on|at) (?:a|the) (?:wooden |small |kitchen |dining |white )?(?:table|desk|counter|countertop)",
             "탁자|테이블|책상|식탁|상 위|카운터|놓인|올려|위에"),
-        (@"at night|at sunset|at dawn|at dusk|during sunset|in the evening|on a (?:sunny|rainy|snowy) day|under (?:a |the )?(?:starry|night|moonlit) sky",
-            "밤|야경|노을|해 지|해지|새벽|저녁|황혼|해질|맑은|햇살|햇빛|비 |비가|비오|비 오|눈 오|눈이|별|달빛|달밤|일몰|석양|일출"),
+        (@"late (?:at|into the) night|at night|at sunset|at dawn|at dusk|during sunset|in the evening|on a (?:sunny|rainy|snowy) day|under (?:a |the )?(?:starry|night|moonlit) sky",
+            "밤|야경|야간|야근|심야|노을|해 지|해지|새벽|저녁|황혼|해질|맑은|햇살|햇빛|비 |비가|비오|비 오|눈 오|눈이|별|달빛|달밤|일몰|석양|일출"),
     ];
 
     /// <summary>
@@ -1152,13 +1152,41 @@ public static class LocalEngine
                 .FirstOrDefault(w => !MinorWords.Contains(w));
             if (key is null) continue;
 
-            string stem = key.Length > 5 ? key[..5] : key;   // masturbating / masturbates 처럼 어미가 달라도 맞게
-            string plain = english.Replace("-", "");           // bra-less 와 braless 를 같은 말로 본다
-            if (Regex.IsMatch(plain, @"\b" + Regex.Escape(stem), RegexOptions.IgnoreCase)) continue;
+            if (Mentions(english.Replace("-", ""), key)) continue;   // bra-less 와 braless 를 같은 말로 본다
+
+            // 사람 낱말은 어근(앞 네 글자)만 맞아도 옮긴 것으로 본다: "slimy" ↔ "slime", "elderly gentleman" ↔ "elderly person".
+            if (g.Explanation == BasicLexicon.MustMarker &&
+                Regex.Matches(g.English, "[A-Za-z]{4,}").Select(m => m.Value).Where(w => !MinorWords.Contains(w))
+                    .Any(w => Regex.IsMatch(english, @"\b" + Regex.Escape(w[..4]), RegexOptions.IgnoreCase)))
+            {
+                continue;
+            }
 
             english = english.TrimEnd('.', ',', ' ') + ", " + g.English;
         }
         return english;
+    }
+
+    /// <summary>
+    /// 프롬프트에 그 낱말이 들어 있는지. 앞 다섯 글자만 견주어 어미가 달라도 맞게 하고(masturbating / masturbates),
+    /// 불규칙 복수도 같은 말로 본다("남자 둘" → "two men"이면 man이 있는 것).
+    /// </summary>
+    private static bool Mentions(string english, string key)
+    {
+        string stem = key.Length > 5 ? key[..5] : key;
+        if (Regex.IsMatch(english, @"\b" + Regex.Escape(stem), RegexOptions.IgnoreCase)) return true;
+        // 불규칙 복수와, 같은 것을 가리키는 흔한 다른 말(moon ↔ lunar, dog ↔ puppy …)
+        string? alternative = key.ToLowerInvariant() switch
+        {
+            "man" => "men", "woman" => "women", "child" => "children|kid", "person" => "people",
+            "mouse" => "mice", "goose" => "geese", "elderly" => "old",
+            "moon" => "lunar", "sun" => "solar", "sea" => "ocean|marine", "dog" => "pupp|canine",
+            "cat" => "kitten|feline", "kid" => "child", "house" => "home", "car" => "vehicle",
+            "grandfather" => "grandpa|old man|elderly man|elderly gentleman|old gentleman",
+            "grandmother" => "grandma|old woman|elderly woman|elderly lady|old lady",
+            _ => null,
+        };
+        return alternative is not null && Regex.IsMatch(english, @"\b(?:" + alternative + ")", RegexOptions.IgnoreCase);
     }
 
     /// <summary>풀이 줄의 한국어 표현에서 모델이 베껴 적은 "(=영어)" 표시를 떼어 낸다.</summary>
@@ -1180,6 +1208,73 @@ public static class LocalEngine
         return body.Length > 0 && body.Contains('\n');
     }
 
+    /// <summary>
+    /// 빠른 모드의 작은 모델이 긴 문장에서 통째로 빠뜨린 그림 요소를 채운다. 입력 속 기본 낱말을 명사구로 묶고
+    /// ("고양이 귀" → cat ears, "빨간 드레스" → red dress), 그 중심 낱말(맨 뒤 낱말)이 프롬프트에 없으면 명사구를 덧붙인다.
+    /// 큰 모델은 비슷한 말로 바꿔 쓰는 일이 많아(dog → puppy) 같은 것이 겹쳐 붙으므로 빠른 모드에서만 쓴다.
+    /// </summary>
+    private static string EnsureCoverage(string english, string korean)
+    {
+        string text = NormalizeRequest(korean);
+        List<List<string>> phrases = [];
+        List<string> current = [];
+        foreach (string token in Regex.Split(text, @"[\s,]+").Where(t => t.Length > 0))
+        {
+            string word = token.Trim('.', '!', '?', '~', '"', '\'', '(', ')');
+            string? bare = BasicLexicon.Meaning(word, text, allowParticles: false);
+            string? withParticle = bare ?? BasicLexicon.Meaning(word, text);
+            if (withParticle is null)   // 사전에 없는 말에서 명사구가 끊긴다
+            {
+                if (current.Count > 0) phrases.Add(current);
+                current = [];
+                continue;
+            }
+            current.Add(withParticle);
+            if (bare is null)           // 조사가 붙은 낱말이 명사구의 끝
+            {
+                phrases.Add(current);
+                current = [];
+            }
+        }
+        if (current.Count > 0) phrases.Add(current);
+
+        foreach (List<string> phrase in phrases)
+        {
+            // 중심 낱말의 뜻("elderly person", "slime monster") 가운데 핵심 낱말 하나라도 있으면 옮긴 것으로 본다.
+            string head = phrase[^1];
+            string[] keys = [.. Regex.Matches(head, "[A-Za-z]{3,}").Select(m => m.Value).Where(w => !MinorWords.Contains(w))];
+            if (keys.Length == 0) continue;
+            string key = keys[^1];
+            string plain = english.Replace("-", " ");
+            if (keys.Any(k => (k.Length >= 4 || k == key) && Mentions(plain, k.Length > 5 ? k : k.TrimEnd('s')))) continue;
+            Trace($"coverage added \"{string.Join(' ', phrase)}\" (key {key}) to: {english}");
+            english = english.TrimEnd('.', ',', ' ') + ", " + string.Join(' ', phrase);
+        }
+        return english;
+    }
+
+    /// <summary>
+    /// 모델이 문장형 프롬프트를 "Medieval Knight Character Sheet"처럼 제목 꼴로 쓰면 첫 글자만 남기고 소문자로 바꾼다.
+    /// 고유명사(Korean, Han River, Rembrandt…)는 되살린다.
+    /// </summary>
+    private static string FixTitleCase(string english)
+    {
+        string[] words = [.. Regex.Matches(english, "[A-Za-z]{3,}").Select(m => m.Value)];
+        if (words.Length < 3 || words.Count(w => char.IsUpper(w[0])) < words.Length * 0.6) return english;
+
+        string text = english[..1] + english[1..].ToLowerInvariant();
+        foreach (string proper in ProperNouns)
+            text = Regex.Replace(text, @"\b" + Regex.Escape(proper) + @"\b", proper, RegexOptions.IgnoreCase);
+        return text;
+    }
+
+    private static readonly string[] ProperNouns =
+    [
+        "Korean", "Korea", "Japanese", "Japan", "Chinese", "China", "English", "Han River", "Seoul", "Busan", "Rembrandt",
+        "Studio Ghibli", "Ghibli", "Pixar", "Disney", "Unreal Engine", "Milky Way", "Earth", "Christmas", "Halloween",
+        "Buddhist", "Shinto", "Lovecraftian", "American", "Renaissance",
+    ];
+
     private static PromptResult BuildResult(string raw, ConvertRequest req, List<Note> glossary, bool final)
     {
         (string english, List<Note> aiNotes) = Parse(raw);
@@ -1192,7 +1287,9 @@ public static class LocalEngine
         if (lineDone)
         {
             english = EnforceGlossary(english, glossary, allSlang: FastMode);
+            if (FastMode && final) english = EnsureCoverage(english, req.Korean);
             if (tags) english = english.ToLowerInvariant();
+            else english = FixTitleCase(english);
         }
 
         // 풀이: 사전에서 찾은 뜻을 먼저, 그다음 AI가 스스로 풀어낸 말.
@@ -1207,6 +1304,9 @@ public static class LocalEngine
 
             // 풀이는 짧은 영어 구여야 한다. "focusing on exactly five fingers to exclude any ambiguity." 같은 설명문은 버린다.
             if (n.English.TrimEnd().EndsWith('.') || n.English.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 7) continue;
+
+            // 모델이 평범한 말을 풀이하면 "Space station", "Visible through"처럼 대문자로 시작하는 일이 많다(은어 풀이는 소문자).
+            if (char.IsUpper(n.English[0]) && !ProperNouns.Any(p => n.English.StartsWith(p, StringComparison.Ordinal))) continue;
 
             // 입력에 없는 말을 풀이했다면 모델이 지어낸 것이다(작은 모델에서 가끔 생긴다).
             if (!req.Korean.Contains(term, StringComparison.Ordinal)) continue;
@@ -1263,6 +1363,7 @@ public static class LocalEngine
     private static readonly (string Words, string[] KoreanCues)[] FillerAdjectives =
     [
         ("serene|peaceful|tranquil|calm", ["평화", "고요", "잔잔", "차분", "한적", "평온"]),
+        ("picturesque|charming|quaint|idyllic", ["그림 같은", "그림같은", "아름다운", "예쁜", "아기자기", "정겨운", "목가", "운치"]),
         ("cozy", ["아늑", "포근", "따뜻", "따스"]),
         ("dreamy|ethereal|whimsical", ["몽환", "꿈", "동화"]),
         ("epic|majestic", ["웅장", "장엄", "에픽", "위엄", "장대"]),
@@ -1323,6 +1424,8 @@ public static class LocalEngine
             ", ");
         text = Regex.Replace(text, @"\s+during\s+", ", ");
         text = Regex.Replace(text, @"\s+against\s+(?:(?:an?|the)\s+)?", ", ");   // "bob haircut against a night view background"
+        text = Regex.Replace(text, @"\s+and\s+(?=(?:his|her|their|its|two|three)\s)", ", ");   // "playing the piano and his granddaughter"
+        text = Regex.Replace(text, @"\s+(?=engaged in\s)", ", ");                               // "wielding a sword engaged in combat"
 
         bool userExcluded = Regex.IsMatch(korean, "빼고|말고|대신|제외");
         HashSet<string> seenWords = [];
@@ -1376,7 +1479,8 @@ public static class LocalEngine
 
             // 앞 태그들에 이미 나온 낱말뿐이면 같은 말의 되풀이다.
             if (tag.Length == 0) continue;
-            string[] content = [.. tag.Split(' ').Where(w => !EmptyTagWords.Contains(w))];
+            // 낱말은 앞 네 글자로 견준다: "slimy monster" 뒤의 "slime monster"도 같은 말의 되풀이로 본다.
+            string[] content = [.. tag.Split(' ').Where(w => !EmptyTagWords.Contains(w)).Select(w => w.Length >= 5 ? w[..4] : w)];
             if (Array.TrueForAll(content, seenWords.Contains)) continue;
 
             tags.Add(tag);
