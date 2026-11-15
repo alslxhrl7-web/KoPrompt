@@ -9,3 +9,6 @@ obj/
 *.state
 models/
 runtimes/
+
+# 릴리스용 압축 파일
+dist/
