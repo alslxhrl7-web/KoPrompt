@@ -1,4 +1,4 @@
-# KoPrompt
+﻿# KoPrompt
 
 한국어로 적은 그림 설명을 이미지 생성 AI(Stable Diffusion, NovelAI, Midjourney, Flux 등)에 넣을 **영어 프롬프트**로 바꿔 주는 Windows 프로그램입니다.
 은어·비속어·줄임말·초성체가 섞인 말도 알아듣고, **인터넷 없이 PC 안에서만** 동작합니다(llama.cpp로 로컬 AI 모델 실행).
@@ -27,7 +27,7 @@
 
 ## 바로 쓰기 (빌드 없이)
 
-1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.0.1-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
+1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.0.2-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
 2. 압축을 푼 폴더 안의 `models` 폴더에 GGUF 모델 파일을 넣습니다(아래 [모델](#모델) 참고).
 3. `KoPrompt.exe`를 실행합니다. .NET을 따로 설치할 필요는 없습니다.
 
@@ -91,5 +91,5 @@ KoPrompt.exe --cli 입력.txt 출력.txt [tags] [fast] [noexplain]
 ## 알려진 한계
 
 - 빠른 모드(작은 모델)는 긴 문장에서 일부 내용을 빠뜨리기도 합니다.
-- 같은 입력도 실행할 때마다 표현이 조금씩 다를 수 있습니다.
+- 큰 모델도 가끔 입력에 없는 말을 조금 덧붙일 수 있습니다(자세·표정·장소·때처럼 흔한 군말은 걸러 냅니다). 같은 입력이면 늘 같은 결과가 나옵니다.
 - 처음 실행하거나 지침이 바뀐 뒤 첫 변환은 "AI가 은어 지침을 익히는 중…"으로 20~40초쯤 걸립니다(이후에는 저장해 둔 기억을 씁니다).

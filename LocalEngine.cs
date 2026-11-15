@@ -44,7 +44,11 @@ public static class LocalEngine
     }
 
     private const int ContextTokens = 4096;
-    private const float DefaultTemperature = 0.2f;
+    /// <summary>
+    /// 0이면 매번 가장 그럴듯한 낱말만 고른다(같은 입력이면 늘 같은 결과). 0.2로 두었을 때는 같은 문장도 실행할 때마다
+    /// 표현이 바뀌고, 가끔 엉뚱한 군말을 붙였다. 0으로 시험해 봐도 번역 품질은 떨어지지 않았다.
+    /// </summary>
+    private const float DefaultTemperature = 0f;
     private const int MaxOutputTokens = 300;
     private const int MaxCachedResults = 200;
     private const int ReadChunk = 16;        // 변환할 때 CPU로 한 번에 읽는 토큰 수
@@ -948,6 +952,22 @@ public static class LocalEngine
     ];
 
     /// <summary>
+    /// 큰 모델이 입력에 없는데 장면을 그럴듯하게 만들려고 덧붙이는 자세·표정·장소·때. 오른쪽은 입력에 이런 말이 있으면
+    /// 사용자가 원한 것이므로 지우지 않는다는 단서(정규식)다.
+    /// </summary>
+    private static readonly (string Phrase, string KoreanCues)[] InventedPhrases =
+    [
+        (@"(?:standing|sitting|seated|posing|leaning|kneeling|crouching)(?: (?:tall|still|proudly|calmly|quietly|gracefully|confidently))?",
+            "서 |서있|서 있|선 |앉|눕|누워|누운|포즈|자세|기대|기댄|무릎|엎드|쪼그|일어|기립"),
+        (@"(?:smiling|grinning|laughing|beaming)(?: (?:warmly|brightly|happily|softly|gently))?|with a (?:warm |bright |gentle |soft |big )?smile",
+            "웃|미소|쪼개|싱글|방긋|히죽|깔깔|빙그레|헤벌쭉|함박|스마일"),
+        (@"(?:on|at) (?:a|the) (?:wooden |small |kitchen |dining |white )?(?:table|desk|counter|countertop)",
+            "탁자|테이블|책상|식탁|상 위|카운터|놓인|올려|위에"),
+        (@"at night|at sunset|at dawn|at dusk|during sunset|in the evening|on a (?:sunny|rainy|snowy) day|under (?:a |the )?(?:starry|night|moonlit) sky",
+            "밤|야경|노을|해 지|해지|새벽|저녁|황혼|해질|맑은|햇살|햇빛|비 |비가|비오|비 오|눈 오|눈이|별|달빛|달밤|일몰|석양|일출"),
+    ];
+
+    /// <summary>
     /// 모델이 입력에 없는데 습관처럼 덧붙이는 꾸밈을 걷어 낸다. 지침으로 막아도 가끔 붙기 때문에 글자 처리로 한 번 더 거른다.
     /// 지우는 것은 (1) 문장 끝의 "radiating joy", "looking adorable" 같은 구절, (2) 입력에 근거가 없는 부사,
     /// (3) "in a lab setting"의 setting, (4) 괄호. 괄호는 이미지 생성기에서 강조 표시로 읽히므로 쉼표로 풀어 쓴다.
@@ -1021,6 +1041,22 @@ public static class LocalEngine
             RegexOptions.IgnoreCase);
         text = Regex.Replace(text, @"\b(?:enveloped|engulfed|blanketed|shrouded|bathed) in\b", "in", RegexOptions.IgnoreCase);
 
+        // 입력에 근거가 없는 자세·표정·장소·때: "a man standing on a bridge" ← "다리 위의 남자",
+        // "five apples on a table" ← "사과 5개", "a cat smiling" ← "고양이". 입력이나 사전의 뜻에 그런 말이 있으면 둔다.
+        foreach ((string phrase, string cues) in InventedPhrases)
+        {
+            if (Regex.IsMatch(korean, cues)) continue;
+            if (glossary.Exists(g => Regex.IsMatch(g.English, @"\b(?:" + phrase + @")\b", RegexOptions.IgnoreCase))) continue;
+            text = Regex.Replace(text, @",?\s+(?:" + phrase + @")\b", "", RegexOptions.IgnoreCase);
+        }
+
+        // "… taking a selfie at a cafe while radiating extreme beauty"
+        text = Regex.Replace(
+            text,
+            @"\s+(?:while |and )?(?:radiating|exuding|evoking|conveying|embodying|showcasing her|showing off her)\b[^,;]*$",
+            "",
+            RegexOptions.IgnoreCase);
+
         // 모델이 확신 없이 덧붙이는 "perhaps …", 습관처럼 붙이는 "gazing off into the distance"
         text = Regex.Replace(text, @"[,\s]+(?:perhaps|maybe|possibly)\b.*$", "", RegexOptions.IgnoreCase);
         if (!Regex.IsMatch(korean, "먼 곳|먼곳|멀리|먼산|먼 산|허공|바라보"))
@@ -1088,11 +1124,27 @@ public static class LocalEngine
     /// 사전에 '!'로 표시된 뜻(성적인 말처럼 모델이 스스로 돌려 말하기 쉬운 것)이 프롬프트에 들어 있는지 본다.
     /// 그 뜻의 핵심 낱말이 없으면 모델이 빼거나 순화한 것이므로, 사전의 영어를 프롬프트 끝에 그대로 덧붙인다.
     /// </summary>
-    private static string EnforceGlossary(string english, List<Note> glossary)
+    /// <param name="allSlang">
+    /// true면 '!' 표시가 없는 은어 사전의 뜻도 빠졌으면 덧붙인다. 빠른 모드의 작은 모델은 긴 문장에서
+    /// "메이드복(=maid outfit)" 같은 뜻을 통째로 빠뜨리는 일이 잦다. 큰 모델은 비슷한 말로 바꿔 쓰는 일이 많아서
+    /// (extremely beautiful → stunningly beautiful) 켜면 같은 뜻이 겹쳐 붙으므로 쓰지 않는다.
+    /// </param>
+    private static string EnforceGlossary(string english, List<Note> glossary, bool allSlang = false)
     {
         foreach (Note g in glossary)
         {
-            if (g.Explanation != SlangDictionary.MustAppear) continue;
+            // 사람 낱말(소녀, 할머니…)은 그림의 주인공이라 빠지면 덧붙인다. 그 밖의 기본 낱말은 건드리지 않는다.
+            bool slang = !g.Explanation.StartsWith(BasicLexicon.Marker, StringComparison.Ordinal);
+            bool must = g.Explanation == SlangDictionary.MustAppear || g.Explanation == BasicLexicon.MustMarker;
+            if (!must && !(allSlang && slang)) continue;
+
+            // 빠른 모드에서 채워 넣는 일반 은어는, 뜻의 핵심 낱말(5글자 이상) 가운데 하나라도 이미 있으면 옮긴 것으로 본다.
+            // ("fried chicken and beer" ← "chicken and beer", "cocky delinquent school bully" ← "delinquent")
+            if (!must && Regex.Matches(g.English, "[A-Za-z]{5,}").Select(m => m.Value)
+                    .Any(w => !MinorWords.Contains(w) && Regex.IsMatch(english, @"\b" + Regex.Escape(w[..5]), RegexOptions.IgnoreCase)))
+            {
+                continue;
+            }
 
             // 뜻의 첫 핵심 낱말(예: "doggy style sex position"의 doggy)이 프롬프트에 있으면 제대로 옮긴 것으로 본다.
             string? key = Regex.Matches(g.English, "[A-Za-z]{3,}")
@@ -1139,13 +1191,14 @@ public static class LocalEngine
         if (tags) english = ToTags(english, req.Korean, glossary);
         if (lineDone)
         {
-            english = EnforceGlossary(english, glossary);
+            english = EnforceGlossary(english, glossary, allSlang: FastMode);
             if (tags) english = english.ToLowerInvariant();
         }
 
         // 풀이: 사전에서 찾은 뜻을 먼저, 그다음 AI가 스스로 풀어낸 말.
         List<Note> notes = [];
-        foreach (Note g in glossary.Where(g => g.Explanation != BasicLexicon.Marker)) notes.Add(g with { Explanation = "사전" });
+        foreach (Note g in glossary.Where(g => !g.Explanation.StartsWith(BasicLexicon.Marker, StringComparison.Ordinal)))
+            notes.Add(g with { Explanation = "사전" });
         foreach (Note n in aiNotes)
         {
             // 모델이 "(=영어)" 표시까지 베껴 적거나 풀이 대신 긴 설명을 늘어놓은 줄은 버린다.

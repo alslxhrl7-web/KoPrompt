@@ -268,9 +268,11 @@ public static class BasicLexicon
         using Stream? s = typeof(BasicLexicon).Assembly.GetManifestResourceStream("basic.txt");
         if (s is null) return;
         using StreamReader r = new(s, Encoding.UTF8);
+        bool people = false;
         foreach (string raw in r.ReadToEnd().Split('\n'))
         {
             string line = raw.Trim();
+            if (line.StartsWith("# ──", StringComparison.Ordinal)) people = line.Contains("사람");   // 구역 머리말
             if (line.Length == 0 || line[0] == '#') continue;
             int eq = line.IndexOf('=');
             if (eq <= 0) continue;
@@ -282,8 +284,18 @@ public static class BasicLexicon
                 Senses[key] = [.. value.Split('|').Select(ParseSense)];
             else
                 Map[key] = value;
+            if (people) PeopleKeys.Add(key);
         }
     }
+
+    /// <summary>
+    /// 사람 구역의 낱말(소녀, 할머니, 기사…). 그림의 주인공이라 프롬프트에서 빠지면 안 된다.
+    /// 이 낱말의 Note는 Explanation이 MustMarker이고, 모델이 빠뜨리면 뜻을 덧붙인다(EnforceGlossary).
+    /// </summary>
+    private static readonly HashSet<string> PeopleKeys = new(StringComparer.Ordinal);
+
+    /// <summary>프롬프트에 꼭 들어가야 하는 기본 낱말(사람)의 Note.Explanation 값. Marker로 시작하므로 해석 칸에는 안 보인다.</summary>
+    public const string MustMarker = Marker + "!";
 
     /// <summary>"snow* [오는, 내리]" 꼴의 뜻 하나를 읽는다.</summary>
     private static Sense ParseSense(string part)
@@ -413,7 +425,8 @@ public static class BasicLexicon
             string english = Resolve(key, text, m.Index);
             if (english.Length == 0) return word;
 
-            if (seen.Add(key)) matches.Add(new Note(key, english, Marker));
+            bool must = PeopleKeys.Contains(key) && !english.Contains(" / ", StringComparison.Ordinal);
+            if (seen.Add(key)) matches.Add(new Note(key, english, must ? MustMarker : Marker));
             return key + "(=" + english + ")" + word[key.Length..];
         });
     }
