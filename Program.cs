@@ -1,4 +1,4 @@
-using System.Drawing.Imaging;
+﻿using System.Drawing.Imaging;
 using System.Text;
 
 namespace KoPrompt;
@@ -23,6 +23,35 @@ internal static class Program
             }
             File.WriteAllText(args[2], sb.ToString(), Encoding.UTF8);
             return 0;
+        }
+
+        // 점검용: KoPrompt.exe --fetch <fast|full> <기록.txt>   (모델 받기만 해 보고 진행 상황을 적음)
+        if (args.Length >= 3 && args[0] == "--fetch")
+        {
+            ModelSource m = ModelSource.All[args[1] == "full" ? 1 : 0];
+            StringBuilder log = new();
+            void Write(string line)
+            {
+                lock (log) { log.AppendLine($"{DateTime.Now:HH:mm:ss} {line}"); File.WriteAllText(args[2], log.ToString(), Encoding.UTF8); }
+            }
+            Write($"시작: {m.FileName} · 이미 받은 부분 {(File.Exists(m.PartFile) ? new FileInfo(m.PartFile).Length : 0)}바이트 · 저장: {m.Target}");
+            double lastPct = -10;
+            try
+            {
+                Task.Run(() => ModelDownloader.DownloadAsync(m, new SyncProgress(p =>
+                {
+                    double pct = p.Done * 100.0 / p.Total;
+                    if (p.Verifying) Write("해시 확인 중");
+                    else if (pct - lastPct >= 10) { lastPct = pct; Write($"{pct:0}% · {p.Done}바이트 · {p.BytesPerSecond / (1 << 20):0.0}MB/s"); }
+                }), CancellationToken.None)).GetAwaiter().GetResult();
+                Write("완료: " + (File.Exists(m.Target) ? new FileInfo(m.Target).Length + "바이트" : "파일 없음"));
+                return 0;
+            }
+            catch (Exception e)
+            {
+                Write("실패: " + e.Message);
+                return 1;
+            }
         }
 
         if (args.Length >= 3 && args[0] == "--cli")
@@ -50,6 +79,19 @@ internal static class Program
             Application.DoEvents();
             using Bitmap bmp = new(shot.Width, shot.Height);
             shot.DrawToBitmap(bmp, new Rectangle(Point.Empty, shot.Size));
+            bmp.Save(args[1], ImageFormat.Png);
+            return 0;
+        }
+
+        // 점검용: KoPrompt.exe --dlshot <파일.png>   (모델 받기 창을 그림으로 저장)
+        if (args.Length >= 2 && args[0] == "--dlshot")
+        {
+            using ModelDownloadForm dl = new(noModel: LocalEngine.FindModelFile() is null);
+            HideOffScreen(dl);
+            dl.Show();
+            Application.DoEvents();
+            using Bitmap bmp = new(dl.Width, dl.Height);
+            dl.DrawToBitmap(bmp, new Rectangle(Point.Empty, dl.Size));
             bmp.Save(args[1], ImageFormat.Png);
             return 0;
         }
@@ -88,6 +130,12 @@ internal static class Program
         form.StartPosition = FormStartPosition.Manual;
         form.Location = new Point(-32000, -32000);
         form.ShowInTaskbar = false;
+    }
+
+    /// <summary>Progress&lt;T&gt;와 달리 받는 스레드에서 바로 부른다(창 없는 점검용).</summary>
+    private sealed class SyncProgress(Action<DownloadProgress> report) : IProgress<DownloadProgress>
+    {
+        public void Report(DownloadProgress value) => report(value);
     }
 
     /// <summary>프롬프트 줄이 다 써진 시각을 잰다.</summary>

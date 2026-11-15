@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -55,7 +55,9 @@ public sealed class UserFacingException(string message) : Exception(message);
 public static class AppPaths
 {
     public static string Data { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "KoPrompt");
+        Environment.GetEnvironmentVariable("KOPROMPT_HOME") is { Length: > 0 } home   // 점검할 때 다른 폴더를 쓰게
+            ? home
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "KoPrompt");
 
     public static string Models => Path.Combine(Data, "models");
     public static string Cache => Path.Combine(Data, "cache");

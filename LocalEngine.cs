@@ -103,19 +103,25 @@ public static class LocalEngine
     /// <summary>지금 올라와 있는 모델 파일 이름(확장자 제외).</summary>
     public static string ModelName { get; private set; } = "";
 
+    /// <summary>모델을 찾는 폴더: exe 옆 models 폴더(폴더째 들고 다니는 경우)와 사용자 폴더의 models.</summary>
+    public static string[] ModelFolders => [Path.Combine(AppContext.BaseDirectory, "models"), AppPaths.Models];
+
     /// <summary>
-    /// 쓸 수 있는 .gguf 모델들을 작은 것부터. 사용자 폴더의 models를 보되, exe를 폴더째 들고 다니는
-    /// 경우를 위해 exe 옆에 models 폴더가 있으면 그쪽을 먼저 본다.
+    /// 쓸 수 있는 .gguf 모델들을 작은 것부터. 두 폴더를 함께 보고, 같은 이름이 둘 다 있으면 exe 옆 것을 쓴다
+    /// (exe 옆에 직접 넣은 모델과 프로그램이 받아 둔 모델을 같이 쓸 수 있게).
     /// </summary>
     public static IReadOnlyList<FileInfo> FindModels()
     {
-        foreach (string dir in new[] { Path.Combine(AppContext.BaseDirectory, "models"), AppPaths.Models })
+        List<FileInfo> found = [];
+        foreach (string dir in ModelFolders.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!Directory.Exists(dir)) continue;
-            FileInfo[] found = [.. new DirectoryInfo(dir).GetFiles("*.gguf").OrderBy(f => f.Length)];
-            if (found.Length > 0) return found;
+            foreach (FileInfo f in new DirectoryInfo(dir).GetFiles("*.gguf"))
+            {
+                if (!found.Any(x => x.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase))) found.Add(f);
+            }
         }
-        return [];
+        return [.. found.OrderBy(f => f.Length)];
     }
 
     /// <summary>지금 설정(빠른 모드 여부)에서 쓸 모델 파일.</summary>

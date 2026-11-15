@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 
 namespace KoPrompt;
@@ -54,6 +54,8 @@ public sealed class MainForm : Form
     private readonly TextBox _txtNewTerm = new() { Width = 150, PlaceholderText = "은어 (예: 갓벽)", Margin = new Padding(3, 5, 3, 3) };
     private readonly TextBox _txtNewMeaning = new() { Width = 200, PlaceholderText = "영어 뜻 (예: flawless, perfect)", Margin = new Padding(3, 5, 3, 3) };
     private readonly Label _lblStatus = new() { AutoSize = true, Margin = new Padding(12, 10, 3, 3), ForeColor = SystemColors.GrayText };
+    private readonly LinkLabel _lnkModels = new() { Text = "모델 받기", AutoSize = true, Margin = new Padding(12, 10, 3, 3) };
+    private readonly ToolTip _fastTip = new();
 
     public MainForm()
     {
@@ -140,8 +142,12 @@ public sealed class MainForm : Form
     {
         if (LocalEngine.FindModelFile() is null)
         {
-            SetStatus("AI 모델 파일이 없습니다 · " + LocalEngine.ModelsFolder + " 에 .gguf 파일을 넣어 주세요");
-            return;
+            // 모델은 라이선스상 함께 배포할 수 없어서, 처음 실행하면 공식 저장소에서 받을지 묻는다.
+            if (!ShowModelDownload(noModel: true))
+            {
+                SetStatus("AI 모델이 없습니다 · '모델 받기'를 누르거나 " + LocalEngine.ModelsFolder + " 에 .gguf 파일을 넣어 주세요");
+                return;
+            }
         }
 
         _btnConvert.Enabled = false;
@@ -240,8 +246,8 @@ public sealed class MainForm : Form
         }
 
         FlowLayoutPanel actions = NewFlow();
-        if (_is3D) actions.Controls.AddRange([_btnConvert, _btnClear, _btnCheck, _lblStatus]);
-        else actions.Controls.AddRange([_btnConvert, _btnClear, _lblStatus]);
+        if (_is3D) actions.Controls.AddRange([_btnConvert, _btnClear, _btnCheck, _lnkModels, _lblStatus]);
+        else actions.Controls.AddRange([_btnConvert, _btnClear, _lnkModels, _lblStatus]);
 
         FlowLayoutPanel bottom = NewFlow();
         bottom.Controls.AddRange([
@@ -327,13 +333,14 @@ public sealed class MainForm : Form
         _chkAuto.Checked = _settings.Auto;
 
         // 빠른 모드는 모델이 둘 이상 있을 때만 고를 수 있다.
-        bool canChoose = LocalEngine.FindModels().Count >= 2;
-        _chkFast.Enabled = canChoose;
-        _chkFast.Checked = canChoose && _settings.Fast;
+        _chkFast.Checked = LocalEngine.FindModels().Count >= 2 && _settings.Fast;
         LocalEngine.FastMode = _chkFast.Checked;
-        new ToolTip().SetToolTip(_chkFast, canChoose
-            ? "켜면 작은 AI 모델로 바꿔서 2~3배 빨리 변환합니다.\r\n사전에 있는 말은 그대로 정확하지만, 사전에 없는 은어는 덜 정확하게 읽을 수 있습니다."
-            : "빠른 모드용 작은 모델 파일이 없습니다.");
+        RefreshModelChoice();
+        _lnkModels.LinkClicked += async (_, _) =>
+        {
+            bool hadModel = LocalEngine.FindModelFile() is not null;
+            if (ShowModelDownload(noModel: !hadModel) && !hadModel && _btnConvert.Enabled) await ReloadModelAsync();
+        };
 
         // GPU 사용이나 빠른 모드를 바꾸면 모델을 내렸다가 새 설정으로 다시 올린다.
         _chkGpu.CheckedChanged += async (_, _) => await ReloadModelAsync();
@@ -719,4 +726,24 @@ public sealed class MainForm : Form
     }
 
     private void SetStatus(string text) => _lblStatus.Text = text;
+
+    /// <summary>모델 받기 창을 띄운다. 쓸 수 있는 모델이 하나라도 있으면 true.</summary>
+    private bool ShowModelDownload(bool noModel)
+    {
+        using (ModelDownloadForm form = new(noModel)) form.ShowDialog(this);
+        RefreshModelChoice();
+        return LocalEngine.FindModelFile() is not null;
+    }
+
+    /// <summary>모델 수에 맞춰 '빠른 모드'를 고를 수 있게 하고, 빠진 모델이 있으면 '모델 받기'를 보여 준다.</summary>
+    private void RefreshModelChoice()
+    {
+        bool canChoose = LocalEngine.FindModels().Count >= 2;
+        _chkFast.Enabled = canChoose;
+        _fastTip.SetToolTip(_chkFast, canChoose
+            ? "켜면 작은 AI 모델로 바꿔서 2~3배 빨리 변환합니다.\r\n사전에 있는 말은 그대로 정확하지만, 사전에 없는 은어는 덜 정확하게 읽을 수 있습니다."
+            : "모델이 하나뿐이라 고를 수 없습니다. '모델 받기'로 다른 모델을 받으면 켤 수 있습니다.");
+        _lnkModels.Visible = ModelSource.AnyMissing;
+        _fastTip.SetToolTip(_lnkModels, "LG AI연구원 공식 저장소에서 EXAONE 모델을 받습니다(빠른 모드용 1.5GB, 정확 모드용 4.4GB).");
+    }
 }

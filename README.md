@@ -29,6 +29,7 @@
 - **요청 말투 정리**: "그려줘", "배경은 ~로 해줘" 같은 말은 걷어 내고 그림 내용만 옮김
 - 스타일 프리셋, 퀄리티 태그, 네거티브 프롬프트, 내 사전 편집, 입력 멈추면 자동 변환
 - GPU(Vulkan) 사용 가능, 빠른 모드(작은 모델) 지원
+- **모델 자동 받기**: 처음 실행할 때 공식 저장소에서 모델을 받아 옴(끊기면 이어받기, 받은 파일이 공식 파일과 같은지 확인)
 - **KoPrompt 바르코3D**: VARCO 3D 이미지 스튜디오용 3D 에셋 프롬프트 전용 창(아래 참고)
 
 ## KoPrompt 바르코3D (VARCO 3D 전용)
@@ -119,9 +120,9 @@ VARCO는 막을 때 "이미지 생성이 콘텐츠 정책에 걸려 중단되었
 
 ## 바로 쓰기 (빌드 없이)
 
-1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.2.0-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
-2. 압축을 푼 폴더 안의 `models` 폴더에 GGUF 모델 파일을 넣습니다(아래 [모델](#모델) 참고).
-3. `KoPrompt.exe`(일반) 또는 `KoPrompt 바르코3D.exe`(VARCO 3D용)를 실행합니다. .NET을 따로 설치할 필요는 없습니다.
+1. [Releases](https://github.com/alslxhrl7-web/KoPrompt/releases)에서 `KoPrompt-v1.3.0-win-x64.zip`을 받아 원하는 곳에 압축을 풉니다.
+2. `KoPrompt.exe`(일반) 또는 `KoPrompt 바르코3D.exe`(VARCO 3D용)를 실행합니다. .NET을 따로 설치할 필요는 없습니다.
+3. 처음 실행하면 **AI 모델 받기 창**이 뜹니다. '받기'를 누르면 LG AI연구원 공식 저장소에서 모델을 받습니다(아래 [모델](#모델) 참고). 한 번만 받으면 그 뒤로는 인터넷 없이 씁니다.
 
 처음 실행하면 "AI가 은어 지침을 익히는 중…"으로 20~40초쯤 걸리고, 다음부터는 바로 뜹니다.
 
@@ -151,8 +152,8 @@ C:\Users\<이름>\KoPrompt\
 └─ settings.json
 ```
 
-- `KoPrompt.exe` 옆에 `models`, `runtimes` 폴더가 있으면 그쪽을 먼저 씁니다(폴더째 들고 다닐 때).
-- `models` 폴더에 모델이 둘 이상 있으면 **가장 큰 모델을 기본**으로, **빠른 모드에서는 가장 작은 모델**을 씁니다.
+- `KoPrompt.exe` 옆에 `runtimes` 폴더가 있으면 그쪽을 먼저 씁니다(폴더째 들고 다닐 때). 모델은 exe 옆 `models` 폴더와 사용자 폴더의 `models` 폴더를 함께 봅니다.
+- 모델이 둘 이상 있으면 **가장 큰 모델을 기본**으로, **빠른 모드에서는 가장 작은 모델**을 씁니다.
 
 ### 모델
 
@@ -163,7 +164,14 @@ C:\Users\<이름>\KoPrompt\
 | 기본(정확) | EXAONE-3.5-7.8B-Instruct Q4_K_M (약 4.8GB) |
 | 빠른 모드 | EXAONE-3.5-2.4B-Instruct Q4_K_M (약 1.6GB) |
 
-Hugging Face의 `LGAI-EXAONE` 저장소에서 GGUF 파일을 받을 수 있습니다. 모델마다 라이선스가 다르니(EXAONE은 비상업용) 쓰기 전에 확인하세요.
+**자동 받기**: 모델이 없으면 처음 실행할 때 받기 창이 뜹니다(나중에는 '변환' 버튼 옆 '모델 받기'로 엽니다).
+
+- LG AI연구원의 공식 Hugging Face 저장소(`LGAI-EXAONE`)에서 직접 받습니다. EXAONE 라이선스는 모델 파일을 다른 곳에 다시 올리는 것을 막고 있어서, 이 프로그램이나 릴리스에는 넣지 않았습니다.
+- 둘 다 받거나 하나만 고를 수 있습니다. 하나만 있어도 쓸 수 있고, 둘 다 있어야 '빠른 모드'를 켤 수 있습니다.
+- 받다가 끊기거나 창을 닫아도 받은 부분은 남아 있어서, 다시 받으면 이어서 받습니다.
+- 다 받으면 크기와 SHA-256이 공식 파일과 같은지 확인한 뒤에만 씁니다.
+- 받은 모델은 `C:\Users\<이름>\KoPrompt\models`에 저장되고, 일반 창과 바르코3D 창이 같이 씁니다.
+- **EXAONE 3.5는 비상업·연구용 라이선스(EXAONE AI Model License 1.1 - NC)입니다.** 받기 전에 [라이선스](https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct-GGUF/blob/main/LICENSE)를 확인하세요. 상업적으로 쓰려면 다른 모델의 GGUF 파일을 `models` 폴더에 직접 넣어 쓰면 됩니다.
 
 ## 사전 고치기
 
@@ -179,6 +187,12 @@ KoPrompt.exe --cli 입력.txt 출력.txt [tags] [3d] [fast] [noexplain]
 ```
 
 창 없이 `입력.txt`의 줄마다 변환해서 `출력.txt`에 적습니다(`tags`: 태그형, `3d`: VARCO 3D용, `fast`: 빠른 모드, `noexplain`: 풀이 생략).
+
+```bash
+KoPrompt.exe --fetch fast 기록.txt
+```
+
+창 없이 모델만 받습니다(`fast`: 빠른 모드용 2.4B, `full`: 정확 모드용 7.8B). 진행 상황을 `기록.txt`에 적습니다.
 
 ## 알려진 한계
 
