@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <AssemblyName>KoPrompt</AssemblyName>
+    <Version>1.0.0</Version>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>ko</SatelliteResourceLanguages>
+
+    <!-- 다른 PC에서도 .NET 설치 없이 실행되는 단일 exe -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- llama.cpp 네이티브 DLL은 exe 옆 runtimes 폴더에 그대로 둔다 (CPU 종류별로 골라 쓰기 때문) -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="slang.txt" LogicalName="slang.txt" />
+    <EmbeddedResource Include="basic.txt" LogicalName="basic.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- llama.cpp DLL을 exe 안에 묶지 않고 runtimes 폴더에 둔다. 리눅스용은 뺀다. -->
+    <Content Update="$(NuGetPackageRoot)llamasharp.backend.*\**\*.dll">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Remove="$(NuGetPackageRoot)llamasharp.backend.vulkan.linux\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.30.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.30.0" />
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.30.0" />
+  </ItemGroup>
+
+</Project>
