@@ -170,7 +170,7 @@ public static class Varco3D
         guide.AppendLine("• 모델: GPT Image 2.5로 시험해 봤습니다. Nano Banana도 문장형이라 그대로 붙여 넣으면 됩니다");
         guide.AppendLine("• 장수: 1장으로 먼저 확인하고, 마음에 들면 늘리세요(시험할 때 GPT Image 2.5는 1장에 50포인트)");
         guide.AppendLine("• 3D 프롬프트 스위치: 3D용 조건은 이미 프롬프트에 들어 있습니다(켜 두어도 프롬프트는 바뀌지 않았습니다)");
-        guide.AppendLine("• 이미지가 나오면 그 이미지의 '3D 생성하기'로 넘기세요");
+        guide.AppendLine("• 이미지가 나오면 이미지를 눌러 '3D 생성하기'로 넘기세요(시험할 때 200포인트, 결과는 '내 에셋'에 생김)");
         guide.AppendLine();
         guide.AppendLine("[VARCO에 칸이 없어서 프롬프트로 대신 넣은 것]");
         guide.AppendLine("• 네거티브 프롬프트: 따로 칸이 없어서 'no cast shadow, no text, no logo'를 프롬프트 끝에 넣었습니다");
