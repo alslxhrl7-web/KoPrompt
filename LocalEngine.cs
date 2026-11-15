@@ -649,6 +649,24 @@ public static class LocalEngine
             if (english[i] is not null) continue;
             ct.ThrowIfCancellationRequested();
 
+            // "마네킹 없이", "받침대 없는" → "no mannequin". 이런 항목을 따로 옮기게 하면 모델이 엉뚱한 말을 지어냈다.
+            Match without = Regex.Match(items[i], @"^(?<core>.+?)\s*(?:없이|없는|빼고|제외)$");
+            if (without.Success)
+            {
+                string core = without.Groups["core"].Value.Trim();
+                string? coreMeaning = DictionaryMeaning(core, dict, req.Korean);
+                if (coreMeaning is null)
+                {
+                    string coreHead = BuildHead(core, dict, out List<Note> coreGlossary);
+                    Generation c = Infer(req with { Explain = false }, coreHead, coreGlossary,
+                        ItemGrammar(core.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length + 2), status, null, ct);
+                    total = After(total, c);
+                    coreMeaning = TrimListItem(Parse(c.Raw).Item1.Trim().TrimEnd('.'), core);
+                }
+                english[i] = "no " + Regex.Replace(coreMeaning, @"^(?:a|an|the)\s+", "", RegexOptions.IgnoreCase).ToLowerInvariant();
+                continue;
+            }
+
             string head = BuildHead(items[i], dict, out List<Note> itemGlossary);
             int cap = items[i].Split(' ', StringSplitOptions.RemoveEmptyEntries).Length + 3;
             Generation one = Infer(req with { Explain = single && req.Explain }, head, itemGlossary, ItemGrammar(cap), status, null, ct);
@@ -657,6 +675,12 @@ public static class LocalEngine
             if (single && notesAt >= 0) notes = one.Raw[notesAt..];
 
             string phrase = TrimListItem(Parse(one.Raw).Item1.Trim().TrimEnd('.'), items[i]);
+            // "지팡이 든" → "a character with a staff"처럼 꾸밈 항목에 모델이 주어를 지어 붙이면 뗀다(목록의 주인공은 앞 항목).
+            if (i > 0)
+            {
+                phrase = Regex.Replace(phrase, @"^(?:a|an|the)\s+(?:man|woman|person|character|figure|guy|someone|people)\s+(?=(?:with|wearing|holding|carrying|wielding|equipped|armed|bearing)\b)",
+                    "", RegexOptions.IgnoreCase);
+            }
             if (i > 0 && !Regex.IsMatch(phrase, @"^(?:Korean|Japanese|Chinese|English|Christmas|Halloween)\b"))
                 phrase = Regex.Replace(phrase, @"^(?:(?:A|An|The)\b|[A-Z](?=[a-z]))", m => m.Value.ToLowerInvariant());   // 목록 중간은 소문자로 시작
             english[i] = phrase;
@@ -770,6 +794,12 @@ public static class LocalEngine
 
         string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length < 3) return null;
+
+        // "SF 레이저 소총"처럼 영문 약자가 섞였거나, "존예 간호사 누나"처럼 꾸밈말 은어(=extremely …)가 앞에 있으면
+        // 낱말 나열이 아니라 한 덩어리 이름이다.
+        if (words.Any(w => Regex.IsMatch(w, "[A-Za-z]"))) return null;
+        if (glossary.Exists(g => Regex.IsMatch(g.English, @"^(?:extremely|insanely|very|super|absolutely|unbelievably|incredibly|really|so)\b", RegexOptions.IgnoreCase)))
+            return null;
 
         foreach (string word in words)
         {
@@ -1032,6 +1062,15 @@ public static class LocalEngine
         if (!Regex.IsMatch(korean, "사이|속|가운데|둘러|한가운데|틈"))
             text = Regex.Replace(text, @"[,\s]+(?:amidst|amid|surrounded by)\b[^,;]*$", "", RegexOptions.IgnoreCase);
         text = Regex.Replace(text, @"\b(\w+) standing tall\b", "$1", RegexOptions.IgnoreCase);
+
+        // "a shield adorned with intricate designs and heraldic symbols", "a gate with towering stone walls and intricate archways":
+        // 입력에 장식·무늬라는 말이 없는데 붙인 꾸밈 구절을 뗀다.
+        if (!Regex.IsMatch(korean, "장식|문양|무늬|화려|정교|세밀|조각된|새겨진|문장|엠블럼"))
+        {
+            text = Regex.Replace(text, @"(?:,\s*|\s+)(?:adorned|decorated|embellished|engraved|etched) with\b[^,;]*", "", RegexOptions.IgnoreCase);
+            text = Regex.Replace(text, @"(?:,\s*|\s+)with\s+(?:[a-z-]+\s+){0,4}?(?:intricate|ornate|elaborate|towering)\b[^,;]*", "", RegexOptions.IgnoreCase);
+            text = Regex.Replace(text, @"\b(?:intricate|ornate|elaborate)\s+", "", RegexOptions.IgnoreCase);
+        }
 
         // "… with heavy snow covering everything", "a village enveloped in snow" → "covering everything" 떼기, "enveloped in" → "in"
         text = Regex.Replace(

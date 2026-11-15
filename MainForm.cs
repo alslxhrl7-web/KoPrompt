@@ -68,7 +68,7 @@ public sealed class MainForm : Form
         _cboStyle.Items.AddRange(StylePreset.All);
         if (_is3D)
         {
-            Text = "KoPrompt 3D · VARCO 3D용 이미지 프롬프트";
+            Text = "KoPrompt 바르코3D · VARCO 3D용 이미지 프롬프트";
             _cbo3Subject.Items.AddRange(Varco3D.SubjectLabels);
             _cbo3Pose.Items.AddRange(Varco3D.PoseLabels);
             _cbo3View.Items.AddRange(Varco3D.ViewLabels);

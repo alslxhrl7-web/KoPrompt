@@ -31,9 +31,12 @@ internal static class Program
             return RunCli(args[1], args[2], args.Contains("tags"), !args.Contains("noexplain"), args.Contains("preread"), args.Contains("3d"));
         }
 
-        // VARCO 3D 전용 창: exe 이름에 "3D"가 들어 있거나(KoPrompt3D.exe) --3d로 실행하면 연다.
+        // VARCO 3D 전용 창: exe 이름에 "3D"나 "바르코"가 들어 있거나("KoPrompt 바르코3D.exe") --3d로 실행하면 연다.
+        string exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
         AppSettings.Is3D = args.Contains("--3d") ||
-                           Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "").Contains("3D", StringComparison.OrdinalIgnoreCase);
+                           exeName.Contains("3D", StringComparison.OrdinalIgnoreCase) ||
+                           exeName.Contains("바르코", StringComparison.Ordinal) ||
+                           exeName.Contains("VARCO", StringComparison.OrdinalIgnoreCase);
 
         ApplicationConfiguration.Initialize();
 
