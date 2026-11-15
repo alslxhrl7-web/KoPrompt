@@ -138,6 +138,15 @@ public static class Varco3D
         };
 
         StringBuilder guide = new();
+
+        // 막힐 만한 낱말이 있으면 맨 앞에 알린다(VARCO는 막을 때 이유를 알려 주지 않는다).
+        List<PolicyHit> hits = PolicyCheck.Check(korean, english + " " + prompt);
+        if (hits.Count > 0)
+        {
+            guide.AppendLine(PolicyCheck.Format(hits));
+            guide.AppendLine();
+        }
+
         guide.AppendLine("[VARCO 화면에서 직접 고를 것]");
         guide.AppendLine($"• 비율: {ratio}" + (ratioAuto ? $"  ← {SubjectName(subject)}{ShapeReason(subject, desc)}라서 추천" : "  ← 직접 고른 비율"));
         guide.AppendLine("• 모델: GPT Image 2.5로 시험해 봤습니다. Nano Banana도 문장형이라 그대로 붙여 넣으면 됩니다");
@@ -164,6 +173,13 @@ public static class Varco3D
         List<string> sections = BasicLexicon.SectionsIn(NormalizeKorean(korean));
         string text = english.ToLowerInvariant();
         bool Has(string words) => Regex.IsMatch(text, @"\b(?:" + words + @")s?\b");
+
+        // 인형·피규어·조각상은 사람 모양이어도 소품이다("a Pikachu doll"). 단, 사람이 먼저 나오면("a girl holding a doll") 캐릭터.
+        Match toy = Regex.Match(text, @"\b(?:doll|dolls|plush|plushie|stuffed toy|toy|figurine|action figure|statue|sculpture|bust|mannequin)\b");
+        Match person = Regex.Match(text, @"\b(?:" + CharacterWords + @")s?\b");
+        bool personToy = Regex.IsMatch(text, @"\b(?:" + CharacterWords + @")s?\s+(?:doll|dolls|plush|plushie|toy|figurine|statue|sculpture|bust)\b");   // "angel statue"
+        if (toy.Success && (!person.Success || toy.Index < person.Index || personToy || person.Value is "figure" or "mannequin"))
+            return Subject3D.Prop;
 
         if (sections.Contains("사람") || Has(CharacterWords)) return Subject3D.Character;
         if (sections.Contains("동물") || Has(CreatureWords)) return Subject3D.Creature;

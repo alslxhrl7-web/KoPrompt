@@ -9,6 +9,22 @@ internal static class Program
     private static int Main(string[] args)
     {
         // 점검용: KoPrompt.exe --cli <입력.txt> <출력.txt> [tags]   (창 없이 변환만 실행)
+        // 점검용: KoPrompt.exe --check <입력.txt> <출력.txt>   (AI 없이 막힐 수 있는 부분만 검사)
+        if (args.Length >= 3 && args[0] == "--check")
+        {
+            StringBuilder sb = new();
+            SlangDictionary dict = new();
+            foreach (string line in File.ReadAllLines(args[1], Encoding.UTF8).Where(l => l.Trim().Length > 0))
+            {
+                dict.Annotate(line, out List<Note> slang);
+                List<PolicyHit> hits = PolicyCheck.Check(line, line + " " + string.Join(" ", slang.Select(n => n.English)));
+                sb.AppendLine("입력   : " + line);
+                sb.AppendLine(PolicyCheck.Format(hits)).AppendLine();
+            }
+            File.WriteAllText(args[2], sb.ToString(), Encoding.UTF8);
+            return 0;
+        }
+
         if (args.Length >= 3 && args[0] == "--cli")
         {
             LocalEngine.FastMode = args.Contains("fast");

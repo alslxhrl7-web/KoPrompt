@@ -36,6 +36,7 @@ public sealed class MainForm : Form
     private readonly ComboBox _cbo3Style = NewCombo(150);
     private readonly ComboBox _cbo3Background = NewCombo(110);
     private readonly ComboBox _cbo3Ratio = NewCombo(130);
+    private readonly Button _btnCheck = NewButton("막힘 검사");
     private string _lastKorean = "";
     private readonly Button _btnBuiltIn = NewButton("기본 사전 보기");
 
@@ -76,6 +77,10 @@ public sealed class MainForm : Form
             _cbo3Ratio.Items.AddRange(Varco3D.RatioLabels);
             new ToolTip().SetToolTip(_cbo3Pose, "캐릭터를 3D로 바꾼 뒤 뼈대를 넣기 쉽게 T-포즈나 A-포즈로 세웁니다.\r\n입력한 동작을 살리려면 '입력대로'를 고르세요.");
             new ToolTip().SetToolTip(_cbo3Ratio, "VARCO 화면의 비율 칸에서 고를 값입니다. '자동 추천'이면 대상 모양에 맞춰 추천합니다.");
+            new ToolTip().SetToolTip(_btnCheck,
+                "입력칸의 글(한국어든 VARCO에서 막힌 영어 프롬프트든)에서 콘텐츠 정책에 걸릴 만한 낱말과 이유를 보여 줍니다.\r\n" +
+                "AI를 돌리지 않아 바로 나옵니다. 막히는 내용을 바꿔 주지는 않습니다.");
+            _btnCheck.Click += (_, _) => RunPolicyCheck();
         }
 
         BuildLayout();
@@ -235,7 +240,8 @@ public sealed class MainForm : Form
         }
 
         FlowLayoutPanel actions = NewFlow();
-        actions.Controls.AddRange([_btnConvert, _btnClear, _lblStatus]);
+        if (_is3D) actions.Controls.AddRange([_btnConvert, _btnClear, _btnCheck, _lblStatus]);
+        else actions.Controls.AddRange([_btnConvert, _btnClear, _lblStatus]);
 
         FlowLayoutPanel bottom = NewFlow();
         bottom.Controls.AddRange([
@@ -423,6 +429,27 @@ public sealed class MainForm : Form
             if (_prereadCts == cts) _prereadCts = null;
             cts.Dispose();
         }
+    }
+
+    /// <summary>입력칸의 글만 보고 막힐 만한 낱말을 찾는다(VARCO에서 막힌 프롬프트를 붙여 넣고 원인을 볼 때).</summary>
+    private void RunPolicyCheck()
+    {
+        string text = _txtInput.Text.Trim();
+        if (text.Length == 0)
+        {
+            SetStatus("검사할 글을 입력칸에 넣으세요. VARCO에서 막힌 프롬프트를 붙여 넣어도 됩니다.");
+            _txtInput.Focus();
+            return;
+        }
+        // 입력이 영어(VARCO에 넣었던 프롬프트)면 그대로, 한국어면 사전의 뜻까지 붙여서 본다.
+        _dict.ReloadIfChanged();
+        _dict.Annotate(text, out List<Note> slang);
+        string english = text + " " + string.Join(" ", slang.Select(n => n.English));
+        List<PolicyHit> hits = PolicyCheck.Check(text, english);
+        _txtNegative.Text = PolicyCheck.Format(hits);
+        SetStatus(hits.Count == 0
+            ? "막힐 만한 낱말을 찾지 못했습니다."
+            : $"막힐 수 있는 부분 {hits.Count}곳 · 아래 칸에 이유를 적었습니다.");
     }
 
     private void Recompose()
