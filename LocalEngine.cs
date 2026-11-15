@@ -1315,6 +1315,15 @@ public static class LocalEngine
                 notes.Add(new Note(term, n.English, "AI 해석"));
         }
 
+        if (req.Format == PromptFormat.Varco3D)
+        {
+            // VARCO 3D용: 번역문을 3D로 바꾸기 좋은 이미지 프롬프트 틀에 넣고, VARCO에서 고를 설정을 안내한다.
+            (string prompt, string guide) = english.Length == 0
+                ? ("", "")
+                : Varco3D.Compose(english, req.Korean, req.Varco ?? Default3D);
+            return new PromptResult(prompt, "", notes, "", english, final, guide);
+        }
+
         return new PromptResult(
             english.Length == 0 ? "" : PromptComposer.Compose(english, req),
             req.Negative ? DefaultNegative : "",
@@ -1323,6 +1332,8 @@ public static class LocalEngine
             english,
             final);
     }
+
+    private static readonly Varco3DOptions Default3D = new(Subject3D.Auto, Pose3D.TPose, View3D.Auto, 0, 0, "자동");
 
     // ── 태그형으로 쪼갠 뒤에 걸러 내는, 모델이 습관처럼 덧붙이는 말 ──
     // 오른쪽은 입력에 이런 말이 있으면 사용자가 원한 것이므로 건드리지 않는다는 단서다(FillerAdverbs와 같은 방식).

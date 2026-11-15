@@ -12,8 +12,12 @@ internal static class Program
         if (args.Length >= 3 && args[0] == "--cli")
         {
             LocalEngine.FastMode = args.Contains("fast");
-            return RunCli(args[1], args[2], args.Contains("tags"), !args.Contains("noexplain"), args.Contains("preread"));
+            return RunCli(args[1], args[2], args.Contains("tags"), !args.Contains("noexplain"), args.Contains("preread"), args.Contains("3d"));
         }
+
+        // VARCO 3D 전용 창: exe 이름에 "3D"가 들어 있거나(KoPrompt3D.exe) --3d로 실행하면 연다.
+        AppSettings.Is3D = args.Contains("--3d") ||
+                           Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "").Contains("3D", StringComparison.OrdinalIgnoreCase);
 
         ApplicationConfiguration.Initialize();
 
@@ -78,7 +82,7 @@ internal static class Program
         }
     }
 
-    private static int RunCli(string inPath, string outPath, bool tags, bool explain, bool preread)
+    private static int RunCli(string inPath, string outPath, bool tags, bool explain, bool preread, bool varco3d = false)
     {
         StringBuilder sb = new();
         try
@@ -99,7 +103,7 @@ internal static class Program
                     continue;
                 }
                 ConvertRequest req = new(
-                    line, tags ? PromptFormat.Tags : PromptFormat.Sentence, StylePreset.All[0],
+                    line, varco3d ? PromptFormat.Varco3D : tags ? PromptFormat.Tags : PromptFormat.Sentence, StylePreset.All[0],
                     Quality: false, Negative: false, Explain: explain);
                 sb.AppendLine();
                 sb.AppendLine("입력   : " + line);
@@ -117,6 +121,7 @@ internal static class Program
                     double total = watch.Elapsed.TotalSeconds;
                     sb.AppendLine($"시간   : 프롬프트 {(timer.Seconds > 0 ? timer.Seconds : total):0.0}초 / 전체 {total:0.0}초");
                     sb.AppendLine("프롬프트: " + r.Prompt);
+                    if (r.Guide.Length > 0) sb.AppendLine("안내   : " + r.Guide.Replace("\r\n", "\n").Replace("\n", "\n         "));
                     foreach (Note n in r.Notes) sb.AppendLine($"풀이   : {n.Term} -> {n.English}  ({n.Explanation})");
                     sb.AppendLine("정보   : " + r.Info);
                 }

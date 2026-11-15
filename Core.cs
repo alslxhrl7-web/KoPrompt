@@ -4,7 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace KoPrompt;
 
-public enum PromptFormat { Sentence, Tags }
+/// <summary>Varco3D: VARCO 3D 이미지 스튜디오용(3D로 바꾸기 좋은 이미지를 만드는 문장형 프롬프트). KoPrompt3D 창에서만 쓴다.</summary>
+public enum PromptFormat { Sentence, Tags, Varco3D }
 
 public sealed record StylePreset(string Label, string English)
 {
@@ -28,15 +29,19 @@ public sealed record StylePreset(string Label, string English)
 }
 
 /// <param name="Explain">사전에 없는 은어를 AI가 어떻게 읽었는지 풀이까지 쓰게 할지. 끄면 프롬프트만 쓰고 끝낸다.</param>
+/// <param name="Varco">Format이 Varco3D일 때의 선택(대상·자세·시점·화풍·배경·비율).</param>
 public sealed record ConvertRequest(
-    string Korean, PromptFormat Format, StylePreset Style, bool Quality, bool Negative, bool Explain = true);
+    string Korean, PromptFormat Format, StylePreset Style, bool Quality, bool Negative, bool Explain = true,
+    Varco3DOptions? Varco = null);
 
 public sealed record Note(string Term, string English, string Explanation);
 
 /// <param name="English">스타일·퀄리티 태그를 붙이기 전의 번역문. 옵션만 바꿨을 때 AI 없이 다시 조합하는 데 쓴다.</param>
 /// <param name="PromptDone">프롬프트는 다 써졌는지(풀이만 남았거나 전부 끝났는지).</param>
+/// <param name="Guide">VARCO 3D용: VARCO 화면에서 직접 고를 설정과, 프롬프트로 대신 넣은 것에 대한 안내.</param>
 public sealed record PromptResult(
-    string Prompt, string Negative, IReadOnlyList<Note> Notes, string Info, string English = "", bool PromptDone = false);
+    string Prompt, string Negative, IReadOnlyList<Note> Notes, string Info, string English = "", bool PromptDone = false,
+    string Guide = "");
 
 /// <summary>사용자에게 그대로 보여줄 수 있는 오류.</summary>
 public sealed class UserFacingException(string message) : Exception(message);
@@ -57,6 +62,7 @@ public static class AppPaths
     public static string UserDictionary => Path.Combine(Data, "은어사전.txt");
     public static string BuiltInReference => Path.Combine(Data, "기본사전_참고용.txt");
     public static string Settings => Path.Combine(Data, "settings.json");
+    public static string Settings3D => Path.Combine(Data, "settings3d.json");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -290,10 +296,15 @@ public static class BasicLexicon
         if (s is null) return;
         using StreamReader r = new(s, Encoding.UTF8);
         bool people = false;
+        string section = "";
         foreach (string raw in r.ReadToEnd().Split('\n'))
         {
             string line = raw.Trim();
-            if (line.StartsWith("# ──", StringComparison.Ordinal)) people = line.Contains("사람");   // 구역 머리말
+            if (line.StartsWith("# ──", StringComparison.Ordinal))   // 구역 머리말
+            {
+                people = line.Contains("사람");
+                section = line.Trim('#', '─', ' ');
+            }
             if (line.Length == 0 || line[0] == '#') continue;
             int eq = line.IndexOf('=');
             if (eq <= 0) continue;
@@ -306,7 +317,23 @@ public static class BasicLexicon
             else
                 Map[key] = value;
             if (people) PeopleKeys.Add(key);
+            Sections[key] = section;
         }
+    }
+
+    /// <summary>낱말이 들어 있는 basic.txt 구역 이름("사람", "동물", "탈것", "장소·건물"…). VARCO 3D 창에서 대상 종류를 가늠하는 데 쓴다.</summary>
+    private static readonly Dictionary<string, string> Sections = new(StringComparer.Ordinal);
+
+    /// <summary>입력 속 기본 낱말들이 속한 구역 이름(입력 순서대로).</summary>
+    public static List<string> SectionsIn(string korean)
+    {
+        List<string> found = [];
+        foreach (string token in Regex.Split(korean, @"[\s,.!?~]+"))
+        {
+            if (token.Length == 0 || MatchKey(token) is not { } key) continue;
+            if (Sections.TryGetValue(key, out string? section)) found.Add(section);
+        }
+        return found;
     }
 
     /// <summary>
@@ -392,6 +419,15 @@ public static class BasicLexicon
     /// <summary>단서가 낱말(start..end)에서 얼마나 떨어져 있는지(글자 수). 없으면 int.MaxValue.</summary>
     private static int CueDistance(string cue, string text, int start, int end)
     {
+        if (cue.StartsWith('@'))   // 바로 다음 낱말이 그 구역의 말일 때만: "나무 보물상자"의 나무 → wooden
+        {
+            Match next = Regex.Match(text[end..], @"^ +([^\s,.!?~]+)");
+            return next.Success && MatchKey(next.Groups[1].Value) is { } nextKey &&
+                   Sections.TryGetValue(nextKey, out string? section) && section == cue[1..]
+                ? 0
+                : int.MaxValue;
+        }
+
         if (cue.StartsWith('>'))   // 바로 뒤에 붙어 있을 때만 (조사 등)
         {
             string c = cue[1..];
@@ -474,9 +510,22 @@ public sealed class AppSettings
     public bool Auto { get; set; } = true;
     public bool Fast { get; set; }
 
+    // KoPrompt3D(VARCO 3D용) 창의 선택. 일반 창과 설정 파일을 따로 쓴다.
+    public int Subject3D { get; set; }
+    public int Pose3D { get; set; }
+    public int View3D { get; set; }
+    public int Style3D { get; set; }
+    public int Background3D { get; set; }
+    public int Ratio3D { get; set; }
+
+    /// <summary>KoPrompt3D 창이면 true. 설정 파일을 settings3d.json으로 쓴다.</summary>
+    public static bool Is3D { get; set; }
+
+    private static string FilePath => Is3D ? AppPaths.Settings3D : AppPaths.Settings;
+
     public static AppSettings Load()
     {
-        foreach (string path in new[] { AppPaths.Settings, OldFilePath })   // 예전 버전의 설정도 이어받는다
+        foreach (string path in Is3D ? [AppPaths.Settings3D] : new[] { AppPaths.Settings, OldFilePath })   // 예전 버전의 설정도 이어받는다
         {
             try
             {
@@ -496,7 +545,7 @@ public sealed class AppSettings
         try
         {
             Directory.CreateDirectory(AppPaths.Data);
-            File.WriteAllText(AppPaths.Settings, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

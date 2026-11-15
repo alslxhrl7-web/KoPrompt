@@ -27,6 +27,16 @@ public sealed class MainForm : Form
     private bool _loadedWithGpu;   // 지금 올라와 있는 모델을 불러올 때의 'GPU 사용' 설정
     private bool _reloading;
     private readonly CheckBox _chkExplain = new() { Text = "AI 풀이 쓰기", AutoSize = true, Margin = new Padding(12, 6, 3, 3) };
+
+    // KoPrompt3D(VARCO 3D용) 창에서만 쓰는 선택
+    private readonly bool _is3D = AppSettings.Is3D;
+    private readonly ComboBox _cbo3Subject = NewCombo(130);
+    private readonly ComboBox _cbo3Pose = NewCombo(90);
+    private readonly ComboBox _cbo3View = NewCombo(100);
+    private readonly ComboBox _cbo3Style = NewCombo(150);
+    private readonly ComboBox _cbo3Background = NewCombo(110);
+    private readonly ComboBox _cbo3Ratio = NewCombo(130);
+    private string _lastKorean = "";
     private readonly Button _btnBuiltIn = NewButton("기본 사전 보기");
 
     private readonly TextBox _txtInput = NewTextBox(readOnly: false);
@@ -55,6 +65,18 @@ public sealed class MainForm : Form
 
         _cboFormat.Items.AddRange(["문장형  (Midjourney · DALL·E · Flux)", "태그형  (Stable Diffusion · NovelAI)"]);
         _cboStyle.Items.AddRange(StylePreset.All);
+        if (_is3D)
+        {
+            Text = "KoPrompt 3D · VARCO 3D용 이미지 프롬프트";
+            _cbo3Subject.Items.AddRange(Varco3D.SubjectLabels);
+            _cbo3Pose.Items.AddRange(Varco3D.PoseLabels);
+            _cbo3View.Items.AddRange(Varco3D.ViewLabels);
+            _cbo3Style.Items.AddRange([.. Varco3D.Styles.Select(s => s.Label)]);
+            _cbo3Background.Items.AddRange(Varco3D.BackgroundLabels);
+            _cbo3Ratio.Items.AddRange(Varco3D.RatioLabels);
+            new ToolTip().SetToolTip(_cbo3Pose, "캐릭터를 3D로 바꾼 뒤 뼈대를 넣기 쉽게 T-포즈나 A-포즈로 세웁니다.\r\n입력한 동작을 살리려면 '입력대로'를 고르세요.");
+            new ToolTip().SetToolTip(_cbo3Ratio, "VARCO 화면의 비율 칸에서 고를 값입니다. '자동 추천'이면 대상 모양에 맞춰 추천합니다.");
+        }
 
         BuildLayout();
         ApplySettings();
@@ -196,11 +218,21 @@ public sealed class MainForm : Form
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         FlowLayoutPanel options = NewFlow();
-        options.Controls.AddRange([
-            NewInlineLabel("형식"), _cboFormat,
-            NewInlineLabel("스타일"), _cboStyle,
-            _chkQuality, _chkNegative, _chkFast, _chkExplain, _chkAuto, _chkGpu,
-        ]);
+        if (_is3D)
+        {
+            options.Controls.AddRange([
+                _cbo3Subject, NewInlineLabel("자세"), _cbo3Pose, _cbo3View, NewInlineLabel("화풍"), _cbo3Style, _cbo3Background, _cbo3Ratio,
+                _chkFast, _chkExplain, _chkAuto, _chkGpu,
+            ]);
+        }
+        else
+        {
+            options.Controls.AddRange([
+                NewInlineLabel("형식"), _cboFormat,
+                NewInlineLabel("스타일"), _cboStyle,
+                _chkQuality, _chkNegative, _chkFast, _chkExplain, _chkAuto, _chkGpu,
+            ]);
+        }
 
         FlowLayoutPanel actions = NewFlow();
         actions.Controls.AddRange([_btnConvert, _btnClear, _lblStatus]);
@@ -214,12 +246,22 @@ public sealed class MainForm : Form
         AddRow(root, NewHeader("한국어 입력  ·  비속어·은어·줄임말 그대로 써도 됩니다", null), SizeType.AutoSize);
         AddRow(root, _txtInput, SizeType.Percent, 28);
         AddRow(root, actions, SizeType.AutoSize);
-        AddRow(root, NewHeader("영어 프롬프트", _btnCopyPrompt), SizeType.AutoSize);
-        AddRow(root, _txtPrompt, SizeType.Percent, 34);
-        AddRow(root, NewHeader("네거티브 프롬프트", _btnCopyNegative), SizeType.AutoSize);
-        AddRow(root, _txtNegative, SizeType.Percent, 12);
+        if (_is3D)
+        {
+            AddRow(root, NewHeader("VARCO 3D 프롬프트  ·  이미지 스튜디오 입력칸에 붙여 넣으세요", _btnCopyPrompt), SizeType.AutoSize);
+            AddRow(root, _txtPrompt, SizeType.Percent, 24);
+            AddRow(root, NewHeader("VARCO에서 고를 설정  ·  프롬프트로 대신 넣은 것", null), SizeType.AutoSize);
+            AddRow(root, _txtNegative, SizeType.Percent, 32);
+        }
+        else
+        {
+            AddRow(root, NewHeader("영어 프롬프트", _btnCopyPrompt), SizeType.AutoSize);
+            AddRow(root, _txtPrompt, SizeType.Percent, 34);
+            AddRow(root, NewHeader("네거티브 프롬프트", _btnCopyNegative), SizeType.AutoSize);
+            AddRow(root, _txtNegative, SizeType.Percent, 12);
+        }
         AddRow(root, NewHeader("해석  ·  은어·비속어를 이렇게 읽었습니다", null), SizeType.AutoSize);
-        AddRow(root, _txtNotes, SizeType.Percent, 26);
+        AddRow(root, _txtNotes, SizeType.Percent, _is3D ? 14 : 26);
         AddRow(root, bottom, SizeType.AutoSize);
 
         Controls.Add(root);
@@ -295,7 +337,28 @@ public sealed class MainForm : Form
         _cboStyle.SelectedIndexChanged += (_, _) => Recompose();
         _chkQuality.CheckedChanged += (_, _) => Recompose();
         _chkNegative.CheckedChanged += (_, _) => Recompose();
+
+        if (_is3D)
+        {
+            _cbo3Subject.SelectedIndex = Math.Clamp(_settings.Subject3D, 0, _cbo3Subject.Items.Count - 1);
+            _cbo3Pose.SelectedIndex = Math.Clamp(_settings.Pose3D, 0, _cbo3Pose.Items.Count - 1);
+            _cbo3View.SelectedIndex = Math.Clamp(_settings.View3D, 0, _cbo3View.Items.Count - 1);
+            _cbo3Style.SelectedIndex = Math.Clamp(_settings.Style3D, 0, _cbo3Style.Items.Count - 1);
+            _cbo3Background.SelectedIndex = Math.Clamp(_settings.Background3D, 0, _cbo3Background.Items.Count - 1);
+            _cbo3Ratio.SelectedIndex = Math.Clamp(_settings.Ratio3D, 0, _cbo3Ratio.Items.Count - 1);
+            // 3D 선택은 번역과 상관없으니 AI를 다시 돌리지 않고 바로 다시 조합한다.
+            foreach (ComboBox c in new[] { _cbo3Subject, _cbo3Pose, _cbo3View, _cbo3Style, _cbo3Background, _cbo3Ratio })
+                c.SelectedIndexChanged += (_, _) => Recompose();
+        }
     }
+
+    private Varco3DOptions Current3DOptions() => new(
+        (Subject3D)Math.Max(0, _cbo3Subject.SelectedIndex),
+        (Pose3D)Math.Max(0, _cbo3Pose.SelectedIndex),
+        (View3D)Math.Max(0, _cbo3View.SelectedIndex),
+        Math.Max(0, _cbo3Style.SelectedIndex),
+        Math.Max(0, _cbo3Background.SelectedIndex),
+        _cbo3Ratio.SelectedIndex <= 0 ? "자동" : (string)_cbo3Ratio.SelectedItem!);
 
     private async Task ReloadModelAsync()
     {
@@ -364,6 +427,14 @@ public sealed class MainForm : Form
 
     private void Recompose()
     {
+        if (_is3D)
+        {
+            if (_lastEnglish.Length == 0) return;
+            (string prompt, string guide) = Varco3D.Compose(_lastEnglish, _lastKorean, Current3DOptions());
+            _txtPrompt.Text = prompt;
+            _txtNegative.Text = guide;
+            return;
+        }
         if (_lastEnglish.Length == 0 || _cboStyle.SelectedItem is not StylePreset style) return;
         ConvertRequest req = new("", _lastFormat, style, _chkQuality.Checked, _chkNegative.Checked);
         _txtPrompt.Text = PromptComposer.Compose(_lastEnglish, req);
@@ -380,13 +451,22 @@ public sealed class MainForm : Form
         if (_chkFast.Enabled) _settings.Fast = _chkFast.Checked;   // 모델이 하나뿐이라 꺼진 경우엔 저장된 값을 건드리지 않는다
         _settings.Explain = _chkExplain.Checked;
         _settings.Auto = _chkAuto.Checked;
+        if (_is3D)
+        {
+            _settings.Subject3D = _cbo3Subject.SelectedIndex;
+            _settings.Pose3D = _cbo3Pose.SelectedIndex;
+            _settings.View3D = _cbo3View.SelectedIndex;
+            _settings.Style3D = _cbo3Style.SelectedIndex;
+            _settings.Background3D = _cbo3Background.SelectedIndex;
+            _settings.Ratio3D = _cbo3Ratio.SelectedIndex;
+        }
         _settings.Save();
     }
 
     // ── 변환 ─────────────────────────────────────────────────
     /// <summary>변환 결과를 좌우하는 것(형식·풀이 여부·입력 문장). 같으면 다시 변환할 필요가 없다.</summary>
     private string CurrentKey() =>
-        $"{_cboFormat.SelectedIndex}|{_chkExplain.Checked}|{_chkFast.Checked}|{_txtInput.Text.Trim()}";
+        $"{(_is3D ? "3d" : _cboFormat.SelectedIndex.ToString())}|{_chkExplain.Checked}|{_chkFast.Checked}|{_txtInput.Text.Trim()}";
 
     /// <summary>타이핑을 잠깐 멈추면 버튼을 누르지 않아도 변환을 시작한다.</summary>
     private async Task AutoConvertAsync()
@@ -437,11 +517,13 @@ public sealed class MainForm : Form
 
         ConvertRequest req = new(
             korean,
-            _cboFormat.SelectedIndex == 1 ? PromptFormat.Tags : PromptFormat.Sentence,
+            _is3D ? PromptFormat.Varco3D : _cboFormat.SelectedIndex == 1 ? PromptFormat.Tags : PromptFormat.Sentence,
             (StylePreset)_cboStyle.SelectedItem!,
             _chkQuality.Checked,
             _chkNegative.Checked,
-            _chkExplain.Checked);
+            _chkExplain.Checked,
+            _is3D ? Current3DOptions() : null);
+        _lastKorean = korean;
 
         CancellationTokenSource cts = new();
         _cts = cts;
@@ -470,7 +552,7 @@ public sealed class MainForm : Form
                     _promptReady = true;
                     _lastEnglish = r.English;
                     _lastFormat = req.Format;
-                    _txtNegative.Text = r.Negative;
+                    _txtNegative.Text = _is3D ? r.Guide : r.Negative;
                     SetStatus($"프롬프트 완료 ({watch.Elapsed.TotalSeconds:0.0}초) · 바로 복사해도 됩니다 · 풀이를 쓰는 중…");
                 }
             });
